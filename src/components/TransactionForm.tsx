@@ -7,6 +7,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Bucket, Category } from '@/db/schema';
 import { parsePesoInput } from '@/lib/money';
 import { AmountInput } from './AmountInput';
@@ -178,7 +179,12 @@ export function TransactionForm({
           <Text style={styles.scanText}>📷 I-scan ang resibo</Text>
         </Pressable>
       )}
-      {receiptPhotoUri && <Text style={styles.receiptNote}>Resibo naka-attach ✓</Text>}
+      {receiptPhotoUri && (
+        <View style={styles.receiptRow}>
+          <Image source={{ uri: receiptPhotoUri }} style={styles.receiptThumb} contentFit="cover" />
+          <Text style={styles.receiptNote}>Resibo naka-attach ✓</Text>
+        </View>
+      )}
 
       <Pressable
         style={[styles.submit, !valid && styles.submitDisabled]}
@@ -285,6 +291,14 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   scanText: { fontFamily: fonts.bodyMedium, fontSize: 14, color: colors.inkDim },
+  receiptRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm },
+  receiptThumb: {
+    width: 48,
+    height: 48,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   receiptNote: { fontFamily: fonts.body, fontSize: 13, color: colors.income },
   submit: {
     backgroundColor: colors.gold,
