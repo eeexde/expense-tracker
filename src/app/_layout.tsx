@@ -44,6 +44,9 @@ export default function RootLayout() {
         <Stack.Screen name="add-installment" options={{ presentation: 'modal' }} />
         <Stack.Screen name="add-utang" options={{ presentation: 'modal' }} />
         <Stack.Screen name="pay-utang" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="manage-buckets" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="add-bucket" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="edit-bucket" options={{ presentation: 'modal' }} />
         <Stack.Screen name="scan-receipt" options={{ presentation: 'fullScreenModal' }} />
       </Stack>
     </DbProvider>

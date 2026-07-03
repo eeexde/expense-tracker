@@ -1,5 +1,13 @@
-import { and, desc, eq, like, sql } from 'drizzle-orm';
-import { Bucket, buckets, Transaction, transactions } from './schema';
+import { and, desc, eq, like, or, sql } from 'drizzle-orm';
+import {
+  Bucket,
+  buckets,
+  installments,
+  recurring,
+  Transaction,
+  transactions,
+  utangPayments,
+} from './schema';
 
 /**
  * Works against both drizzle drivers (expo-sqlite on device,
@@ -136,4 +144,80 @@ export async function totalMoney(db: Db): Promise<number> {
 /** Buckets with history are archived, never deleted — history stays intact. */
 export async function archiveBucket(db: Db, id: number): Promise<void> {
   await db.update(buckets).set({ archived: true }).where(eq(buckets.id, id));
+}
+
+export interface NewBucketInput {
+  name: string;
+  icon?: string;
+  color?: string;
+  startingBalance?: number;
+}
+
+export async function createBucket(db: Db, input: NewBucketInput): Promise<Bucket> {
+  const name = input.name.trim();
+  if (!name) throw new Error('Bucket name is required');
+  if (input.startingBalance !== undefined && !Number.isInteger(input.startingBalance)) {
+    throw new Error('Starting balance must be integer centavos');
+  }
+  const [row] = await db
+    .insert(buckets)
+    .values({ ...input, name })
+    .returning();
+  return row;
+}
+
+export async function updateBucket(
+  db: Db,
+  id: number,
+  patch: Partial<NewBucketInput>,
+): Promise<void> {
+  if (patch.name !== undefined && !patch.name.trim()) {
+    throw new Error('Bucket name is required');
+  }
+  if (patch.startingBalance !== undefined && !Number.isInteger(patch.startingBalance)) {
+    throw new Error('Starting balance must be integer centavos');
+  }
+  await db
+    .update(buckets)
+    .set({ ...patch, ...(patch.name !== undefined ? { name: patch.name.trim() } : {}) })
+    .where(eq(buckets.id, id));
+}
+
+/**
+ * True when any row still points at the bucket — transactions (either side),
+ * utang payments, recurring rules, or installment plans.
+ */
+export async function bucketHasReferences(db: Db, id: number): Promise<boolean> {
+  const [txn] = await db
+    .select({ id: transactions.id })
+    .from(transactions)
+    .where(or(eq(transactions.bucketId, id), eq(transactions.toBucketId, id)))
+    .limit(1);
+  if (txn) return true;
+  const [payment] = await db
+    .select({ id: utangPayments.id })
+    .from(utangPayments)
+    .where(eq(utangPayments.bucketId, id))
+    .limit(1);
+  if (payment) return true;
+  const [rule] = await db
+    .select({ id: recurring.id })
+    .from(recurring)
+    .where(eq(recurring.bucketId, id))
+    .limit(1);
+  if (rule) return true;
+  const [plan] = await db
+    .select({ id: installments.id })
+    .from(installments)
+    .where(eq(installments.bucketId, id))
+    .limit(1);
+  return Boolean(plan);
+}
+
+/** Hard delete — only allowed while nothing references the bucket. */
+export async function deleteBucket(db: Db, id: number): Promise<void> {
+  if (await bucketHasReferences(db, id)) {
+    throw new Error('Bucket has history — archive it instead of deleting');
+  }
+  await db.delete(buckets).where(eq(buckets.id, id));
 }

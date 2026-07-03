@@ -30,7 +30,17 @@ export default function HomeScreen() {
           <Text style={styles.heroAmount}>{total === undefined ? '…' : formatPeso(total)}</Text>
         </View>
 
-        <Text style={styles.sectionTitle}>Buckets</Text>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Buckets</Text>
+          <Pressable
+            onPress={() => router.push('/manage-buckets')}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Manage buckets"
+          >
+            <Text style={styles.manageLink}>✎ Manage</Text>
+          </Pressable>
+        </View>
         <FlatList
           horizontal
           data={balances ?? []}
@@ -101,6 +111,12 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     marginTop: spacing.sm,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  manageLink: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.gold },
   bucketRow: { gap: spacing.sm, paddingBottom: spacing.sm },
   empty: { fontFamily: fonts.body, fontSize: 14, color: colors.inkFaint, paddingVertical: spacing.md },
   fab: {
