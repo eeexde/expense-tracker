@@ -6,6 +6,7 @@ import React, {
   useMemo,
   useState,
 } from 'react';
+import { notifyPostedDues } from '@/lib/notifications';
 import { PostedSummary, runCatchUp } from '@/lib/recurringEngine';
 import { todayLocal } from '@/theme';
 import { AppDb, openAppDb } from './client';
@@ -37,6 +38,9 @@ export function DbProvider({ children }: { children: React.ReactNode }) {
         if (cancelled) return;
         setCatchUp(summary);
         setDb(instance);
+        notifyPostedDues(summary).catch(() => {
+          // Notifications are best-effort; never block startup on them.
+        });
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e : new Error(String(e)));
       }

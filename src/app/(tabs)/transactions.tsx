@@ -7,25 +7,8 @@ import { useAppQuery } from '@/db/hooks';
 import { deleteTransaction, listTransactions } from '@/db/repo';
 import { buckets as bucketsTable, categories as categoriesTable, Transaction } from '@/db/schema';
 import { formatPeso } from '@/lib/money';
+import { monthLabel, shiftMonth } from '@/lib/months';
 import { colors, currentMonth, fonts, spacing } from '@/theme';
-
-const MONTH_NAMES = [
-  'Enero', 'Pebrero', 'Marso', 'Abril', 'Mayo', 'Hunyo',
-  'Hulyo', 'Agosto', 'Setyembre', 'Oktubre', 'Nobyembre', 'Disyembre',
-];
-
-function shiftMonth(ym: string, delta: number): string {
-  let [year, month] = ym.split('-').map(Number);
-  month += delta;
-  while (month < 1) { month += 12; year -= 1; }
-  while (month > 12) { month -= 12; year += 1; }
-  return `${year}-${String(month).padStart(2, '0')}`;
-}
-
-function monthLabel(ym: string): string {
-  const [year, month] = ym.split('-').map(Number);
-  return `${MONTH_NAMES[month - 1]} ${year}`;
-}
 
 export default function TransactionsScreen() {
   const { db, refresh } = useDb();

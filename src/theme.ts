@@ -26,6 +26,23 @@ export const colors = {
   danger: '#E5533D',
 } as const;
 
+/**
+ * Chart-only palette, validated (dataviz six checks) against `surface`
+ * for dark mode: lightness band, chroma floor, CVD all-pairs ΔE ≥ 12,
+ * contrast ≥ 3:1. Fixed order — assign in sequence, never cycle.
+ * `chartOther` is the neutral "Iba pa" slot; it always carries a label.
+ */
+export const chartCategorical = [
+  '#B8860B',
+  '#D14E2A',
+  '#2E9E62',
+  '#5595D3',
+  '#7E52C9',
+] as const;
+export const chartOther = '#5F7263';
+export const chartIncome = '#2E9E62';
+export const chartExpense = '#D14E2A';
+
 export const fonts = {
   display: 'Fraunces_600SemiBold',
   displayBlack: 'Fraunces_900Black',
