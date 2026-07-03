@@ -33,29 +33,29 @@ export default function AddUtangScreen() {
 
   return (
     <SafeAreaView style={formStyles.screen} edges={['top', 'bottom']}>
-      <Text style={formStyles.title}>Bagong utang</Text>
+      <Text style={formStyles.title}>New utang</Text>
       <ScrollView contentContainerStyle={formStyles.content} keyboardShouldPersistTaps="handled">
         <Segmented
           options={[
-            { value: 'iOwe', label: 'Utang ko' },
-            { value: 'owedToMe', label: 'Utang sa akin' },
+            { value: 'iOwe', label: 'I owe' },
+            { value: 'owedToMe', label: 'Owed to me' },
           ]}
           value={direction}
           onChange={setDirection}
         />
 
         <Text style={formStyles.label}>
-          {direction === 'iOwe' ? 'Kanino ako may utang' : 'Sino may utang sa akin'}
+          {direction === 'iOwe' ? 'Who I owe' : 'Who owes me'}
         </Text>
         <TextInput
           style={formStyles.textInput}
           value={personName}
           onChangeText={setPersonName}
-          placeholder="Pangalan"
+          placeholder="Name"
           placeholderTextColor={colors.inkFaint}
         />
 
-        <Text style={formStyles.label}>Halaga</Text>
+        <Text style={formStyles.label}>Amount</Text>
         <TextInput
           style={[
             formStyles.textInput,
@@ -77,7 +77,7 @@ export default function AddUtangScreen() {
           placeholderTextColor={colors.inkFaint}
         />
 
-        <SubmitButton label="I-save" disabled={!valid} onPress={save} />
+        <SubmitButton label="Save" disabled={!valid} onPress={save} />
       </ScrollView>
     </SafeAreaView>
   );

@@ -34,7 +34,7 @@ async function utangCategoryId(db: Db, type: 'expense' | 'income'): Promise<numb
   const [cat] = await db
     .select()
     .from(categories)
-    .where(and(eq(categories.name, 'Utang'), eq(categories.type, type)));
+    .where(and(eq(categories.name, 'Debt'), eq(categories.type, type)));
   return cat?.id;
 }
 
@@ -53,7 +53,8 @@ export async function addUtangPayment(db: Db, input: NewUtangPaymentInput): Prom
     amount: input.amount,
     bucketId: input.bucketId,
     date: input.date,
-    note: `${debt.direction === 'iOwe' ? 'Bayad kay' : 'Bayad ni'} ${debt.personName}`,
+    note:
+      debt.direction === 'iOwe' ? `Paid ${debt.personName}` : `Payment from ${debt.personName}`,
   };
   if (debt.direction === 'iOwe') {
     await addExpense(db, { ...txnInput, categoryId: await utangCategoryId(db, 'expense') });

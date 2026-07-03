@@ -18,30 +18,30 @@ export default function UtangScreen() {
         <View style={styles.headerRow}>
           <Text style={styles.pageTitle}>Utang</Text>
           <Pressable onPress={() => router.push('/add-utang')} hitSlop={8}>
-            <Text style={styles.addLink}>＋ Idagdag</Text>
+            <Text style={styles.addLink}>＋ Add</Text>
           </Pressable>
         </View>
 
         <View style={styles.totalsRow}>
           <View style={styles.totalCard}>
-            <Text style={styles.totalLabel}>Utang ko</Text>
+            <Text style={styles.totalLabel}>I owe</Text>
             <Text style={[styles.totalAmount, { color: colors.expense }]}>
               {totals === undefined ? '…' : formatPeso(totals.iOwe)}
             </Text>
           </View>
           <View style={styles.totalCard}>
-            <Text style={styles.totalLabel}>Utang sa akin</Text>
+            <Text style={styles.totalLabel}>Owed to me</Text>
             <Text style={[styles.totalAmount, { color: colors.income }]}>
               {totals === undefined ? '…' : formatPeso(totals.owedToMe)}
             </Text>
           </View>
         </View>
 
-        <UtangSection title="Mga inutang ko" list={iOwe} emptyText="Walang utang. Galing!" />
+        <UtangSection title="Debts I owe" list={iOwe} emptyText="No debts. Nice!" />
         <UtangSection
-          title="Mga may utang sa akin"
+          title="Debts owed to me"
           list={owedToMe}
-          emptyText="Walang nangutang sa iyo."
+          emptyText="Nobody owes you."
         />
       </ScrollView>
     </SafeAreaView>
@@ -90,7 +90,7 @@ function UtangSection({
         <View key={u.id} style={[styles.card, styles.settled]}>
           <View style={styles.cardMain}>
             <Text style={[styles.cardTitle, { color: colors.inkFaint }]}>{u.personName}</Text>
-            <Text style={styles.cardSub}>Bayad na ✓ {formatPeso(u.originalAmount)}</Text>
+            <Text style={styles.cardSub}>Settled ✓ {formatPeso(u.originalAmount)}</Text>
           </View>
         </View>
       ))}

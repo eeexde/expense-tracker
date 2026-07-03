@@ -49,7 +49,7 @@ export async function expensesByCategory(db: Db, ym: string): Promise<CategoryBr
   const grandTotal = rows.reduce((acc, r) => acc + r.total, 0);
   return rows.map((r) => ({
     categoryId: r.categoryId,
-    categoryName: r.categoryName ?? 'Walang category',
+    categoryName: r.categoryName ?? 'Uncategorized',
     total: r.total,
     pct: grandTotal === 0 ? 0 : Math.round((r.total / grandTotal) * 100),
   }));

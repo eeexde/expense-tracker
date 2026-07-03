@@ -13,7 +13,7 @@ import {
 import { formatPeso } from '@/lib/money';
 import { colors, fonts, radii, spacing } from '@/theme';
 
-const WEEKDAYS = ['Linggo', 'Lunes', 'Martes', 'Miyerkules', 'Huwebes', 'Biyernes', 'Sabado'];
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 export default function RecurringScreen() {
   const router = useRouter();
@@ -27,10 +27,10 @@ export default function RecurringScreen() {
   };
 
   const confirmDeleteRule = (rule: Recurring) => {
-    Alert.alert('Burahin?', rule.name, [
-      { text: 'Kanselahin', style: 'cancel' },
+    Alert.alert('Delete?', rule.name, [
+      { text: 'Cancel', style: 'cancel' },
       {
-        text: 'Burahin',
+        text: 'Delete',
         style: 'destructive',
         onPress: async () => {
           await db.delete(recurringTable).where(eq(recurringTable.id, rule.id));
@@ -44,13 +44,13 @@ export default function RecurringScreen() {
     <SafeAreaView style={styles.screen} edges={['top']}>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.headerRow}>
-          <Text style={styles.sectionTitle}>Recurring na gastos</Text>
+          <Text style={styles.sectionTitle}>Recurring expenses</Text>
           <Pressable onPress={() => router.push('/add-recurring')} hitSlop={8}>
-            <Text style={styles.addLink}>＋ Idagdag</Text>
+            <Text style={styles.addLink}>＋ Add</Text>
           </Pressable>
         </View>
         {rules !== undefined && rules.length === 0 && (
-          <Text style={styles.empty}>Wala pa. Idagdag ang kuryente, internet, rent…</Text>
+          <Text style={styles.empty}>None yet. Add electricity, internet, rent…</Text>
         )}
         {(rules ?? []).map((rule) => (
           <Pressable
@@ -63,9 +63,9 @@ export default function RecurringScreen() {
               <Text style={[styles.cardTitle, !rule.active && styles.inactive]}>{rule.name}</Text>
               <Text style={styles.cardSub}>
                 {rule.frequency === 'monthly'
-                  ? `Buwanan · araw ${rule.dayDue}`
-                  : `Lingguhan · ${WEEKDAYS[rule.dayDue]}`}
-                {rule.active ? '' : ' · naka-pause'}
+                  ? `Monthly · day ${rule.dayDue}`
+                  : `Weekly · ${WEEKDAYS[rule.dayDue]}`}
+                {rule.active ? '' : ' · paused'}
               </Text>
             </View>
             <Text style={[styles.cardAmount, !rule.active && styles.inactive]}>
@@ -73,16 +73,16 @@ export default function RecurringScreen() {
             </Text>
           </Pressable>
         ))}
-        <Text style={styles.hint}>Pindutin para i-pause, pindutin nang matagal para burahin.</Text>
+        <Text style={styles.hint}>Tap to pause, long-press to delete.</Text>
 
         <View style={[styles.headerRow, { marginTop: spacing.lg }]}>
-          <Text style={styles.sectionTitle}>Mga hulugan</Text>
+          <Text style={styles.sectionTitle}>Installments</Text>
           <Pressable onPress={() => router.push('/add-installment')} hitSlop={8}>
-            <Text style={styles.addLink}>＋ Idagdag</Text>
+            <Text style={styles.addLink}>＋ Add</Text>
           </Pressable>
         </View>
         {plans !== undefined && plans.length === 0 && (
-          <Text style={styles.empty}>Wala pang hulugan (hal. Home Credit).</Text>
+          <Text style={styles.empty}>No installment plans yet (e.g. Home Credit).</Text>
         )}
         {(plans ?? []).map((plan) => (
           <InstallmentCard key={plan.id} plan={plan} />
@@ -102,8 +102,8 @@ function InstallmentCard({ plan }: { plan: Installment }) {
         <Text style={styles.cardTitle}>{plan.itemName}</Text>
         <Text style={styles.cardSub}>
           {done
-            ? 'Bayad na! 🎉'
-            : `${formatPeso(plan.monthlyDue)}/buwan · ${monthsLeft} buwan pa · araw ${plan.dayDue}`}
+            ? 'Paid off! 🎉'
+            : `${formatPeso(plan.monthlyDue)}/month · ${monthsLeft} months left · day ${plan.dayDue}`}
         </Text>
       </View>
       <Text style={[styles.cardAmount, done && styles.done]}>

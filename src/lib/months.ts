@@ -1,6 +1,6 @@
 export const MONTH_NAMES = [
-  'Enero', 'Pebrero', 'Marso', 'Abril', 'Mayo', 'Hunyo',
-  'Hulyo', 'Agosto', 'Setyembre', 'Oktubre', 'Nobyembre', 'Disyembre',
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
 export function shiftMonth(ym: string, delta: number): string {
@@ -16,7 +16,7 @@ export function monthLabel(ym: string): string {
   return `${MONTH_NAMES[month - 1]} ${year}`;
 }
 
-/** Short label for chart axes, e.g. 'Peb'. */
+/** Short label for chart axes, e.g. 'Feb'. */
 export function monthShort(ym: string): string {
   const month = Number(ym.split('-')[1]);
   return MONTH_NAMES[month - 1].slice(0, 3);

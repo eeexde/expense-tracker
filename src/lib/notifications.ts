@@ -26,11 +26,11 @@ export async function notifyPostedDues(summary: PostedSummary): Promise<void> {
   const content =
     summary.posted.length === 1
       ? {
-          title: 'Na-post ang recurring na gastos',
+          title: 'Recurring expense posted',
           body: `${summary.posted[0].name} — ${formatPeso(summary.posted[0].amount)}`,
         }
       : {
-          title: `${summary.posted.length} recurring na gastos ang na-post`,
+          title: `${summary.posted.length} recurring expenses posted`,
           body: summary.posted
             .map((p) => `${p.name} ${formatPeso(p.amount)}`)
             .join(', '),

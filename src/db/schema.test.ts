@@ -30,7 +30,7 @@ describe('db schema', () => {
     expect(allBuckets).toHaveLength(PRESET_BUCKETS.length);
     expect(allBuckets.map((b) => b.name)).toContain('GCash');
     expect(allCategories.filter((c) => c.type === 'expense').map((c) => c.name)).toContain(
-      'Kuryente',
+      'Electricity',
     );
     expect(allCategories.filter((c) => c.type === 'income').map((c) => c.name)).toContain(
       'Freelance',

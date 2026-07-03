@@ -11,7 +11,7 @@ import { parsePesoInput } from '@/lib/money';
 import { runCatchUp } from '@/lib/recurringEngine';
 import { colors, todayLocal } from '@/theme';
 
-const WEEKDAYS = ['Linggo', 'Lunes', 'Martes', 'Miyerkules', 'Huwebes', 'Biyernes', 'Sabado'];
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 export default function AddRecurringScreen() {
   const router = useRouter();
@@ -20,7 +20,7 @@ export default function AddRecurringScreen() {
   const [amountText, setAmountText] = useState('');
   const [frequency, setFrequency] = useState<'monthly' | 'weekly'>('monthly');
   const [dayDueText, setDayDueText] = useState('1');
-  const [weekday, setWeekday] = useState(1); // Lunes
+  const [weekday, setWeekday] = useState(1); // Monday
   const [bucketId, setBucketId] = useState<number | undefined>(undefined);
   const [categoryId, setCategoryId] = useState<number | undefined>(undefined);
 
@@ -58,18 +58,18 @@ export default function AddRecurringScreen() {
 
   return (
     <SafeAreaView style={formStyles.screen} edges={['top', 'bottom']}>
-      <Text style={formStyles.title}>Bagong recurring</Text>
+      <Text style={formStyles.title}>New recurring</Text>
       <ScrollView contentContainerStyle={formStyles.content} keyboardShouldPersistTaps="handled">
-        <Text style={formStyles.label}>Pangalan</Text>
+        <Text style={formStyles.label}>Name</Text>
         <TextInput
           style={formStyles.textInput}
           value={name}
           onChangeText={setName}
-          placeholder="Hal. Kuryente"
+          placeholder="e.g. Electricity"
           placeholderTextColor={colors.inkFaint}
         />
 
-        <Text style={formStyles.label}>Halaga</Text>
+        <Text style={formStyles.label}>Amount</Text>
         <TextInput
           style={[
             formStyles.textInput,
@@ -82,11 +82,11 @@ export default function AddRecurringScreen() {
           keyboardType="decimal-pad"
         />
 
-        <Text style={formStyles.label}>Gaano kadalas</Text>
+        <Text style={formStyles.label}>How often</Text>
         <Segmented
           options={[
-            { value: 'monthly', label: 'Buwanan' },
-            { value: 'weekly', label: 'Lingguhan' },
+            { value: 'monthly', label: 'Monthly' },
+            { value: 'weekly', label: 'Weekly' },
           ]}
           value={frequency}
           onChange={setFrequency}
@@ -94,7 +94,7 @@ export default function AddRecurringScreen() {
 
         {frequency === 'monthly' ? (
           <>
-            <Text style={formStyles.label}>Araw ng buwan (1–31)</Text>
+            <Text style={formStyles.label}>Day of month (1–31)</Text>
             <TextInput
               style={[formStyles.textInput, !dayDueValid && formStyles.textInputError]}
               value={dayDueText}
@@ -104,7 +104,7 @@ export default function AddRecurringScreen() {
           </>
         ) : (
           <>
-            <Text style={formStyles.label}>Araw ng linggo</Text>
+            <Text style={formStyles.label}>Day of week</Text>
             <ChipRow
               items={WEEKDAYS.map((label, i) => ({ id: i, label }))}
               selectedId={weekday}
@@ -113,7 +113,7 @@ export default function AddRecurringScreen() {
           </>
         )}
 
-        <Text style={formStyles.label}>Mula sa bucket</Text>
+        <Text style={formStyles.label}>From bucket</Text>
         <ChipRow
           items={buckets.map((b) => ({ id: b.id, label: `${b.icon} ${b.name}` }))}
           selectedId={bucketId}
@@ -127,7 +127,7 @@ export default function AddRecurringScreen() {
           onSelect={(id) => setCategoryId(categoryId === id ? undefined : id)}
         />
 
-        <SubmitButton label="I-save" disabled={!valid} onPress={save} />
+        <SubmitButton label="Save" disabled={!valid} onPress={save} />
       </ScrollView>
     </SafeAreaView>
   );

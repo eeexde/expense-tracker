@@ -32,7 +32,7 @@ export default function StatsScreen() {
   const total = useAppQuery((db) => totalMoney(db));
   const utang = useAppQuery((db) => utangTotals(db));
 
-  // Top 5 categories keep their fixed-order slot color; the rest fold into "Iba pa".
+  // Top 5 categories keep their fixed-order slot color; the rest fold into "Others".
   const top = (byCategory ?? []).slice(0, TOP_CATEGORIES);
   const rest = (byCategory ?? []).slice(TOP_CATEGORIES);
   const restTotal = rest.reduce((acc, r) => acc + r.total, 0);
@@ -42,7 +42,7 @@ export default function StatsScreen() {
       ? [
           {
             categoryId: null,
-            categoryName: 'Iba pa',
+            categoryName: 'Others',
             total: restTotal,
             pct: rest.reduce((acc, r) => acc + r.pct, 0),
             color: chartOther,
@@ -76,8 +76,8 @@ export default function StatsScreen() {
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.tileRow}>
-          <StatTile label="Kita" value={summary?.income} color={colors.income} />
-          <StatTile label="Gastos" value={summary?.expenses} color={colors.expense} />
+          <StatTile label="Income" value={summary?.income} color={colors.income} />
+          <StatTile label="Expenses" value={summary?.expenses} color={colors.expense} />
           <StatTile
             label="Net"
             value={summary?.net}
@@ -85,9 +85,9 @@ export default function StatsScreen() {
           />
         </View>
 
-        <Text style={styles.sectionTitle}>Saan napunta ang pera</Text>
+        <Text style={styles.sectionTitle}>Where the money went</Text>
         {slices.length === 0 ? (
-          <Text style={styles.empty}>Walang gastos ngayong buwan.</Text>
+          <Text style={styles.empty}>No expenses this month.</Text>
         ) : (
           <View style={styles.card}>
             <View style={styles.donutRow}>
@@ -124,13 +124,13 @@ export default function StatsScreen() {
           </View>
         )}
 
-        <Text style={styles.sectionTitle}>Huling 6 na buwan</Text>
+        <Text style={styles.sectionTitle}>Last 6 months</Text>
         <View style={styles.card}>
           <View style={styles.legendInline}>
             <View style={[styles.legendDot, { backgroundColor: chartIncome }]} />
-            <Text style={styles.legendName}>Kita</Text>
+            <Text style={styles.legendName}>Income</Text>
             <View style={[styles.legendDot, { backgroundColor: chartExpense }]} />
-            <Text style={styles.legendName}>Gastos</Text>
+            <Text style={styles.legendName}>Expenses</Text>
           </View>
           <BarChart
             data={barData}
@@ -150,7 +150,7 @@ export default function StatsScreen() {
           />
         </View>
 
-        <Text style={styles.sectionTitle}>Pera per bucket</Text>
+        <Text style={styles.sectionTitle}>Money per bucket</Text>
         <View style={styles.card}>
           {(balances ?? []).map(({ bucket, balance }) => (
             <View key={bucket.id} style={styles.categoryRow}>
@@ -163,7 +163,7 @@ export default function StatsScreen() {
             </View>
           ))}
           <View style={[styles.categoryRow, styles.totalRow]}>
-            <Text style={[styles.categoryName, { fontFamily: fonts.bodyBold }]}>Kabuuan</Text>
+            <Text style={[styles.categoryName, { fontFamily: fonts.bodyBold }]}>Total</Text>
             <Text style={[styles.categoryAmount, { color: colors.gold }]}>
               {total === undefined ? '…' : formatPeso(total)}
             </Text>
@@ -172,8 +172,8 @@ export default function StatsScreen() {
 
         <Text style={styles.sectionTitle}>Utang</Text>
         <View style={styles.tileRow}>
-          <StatTile label="Utang ko" value={utang?.iOwe} color={colors.expense} />
-          <StatTile label="Utang sa akin" value={utang?.owedToMe} color={colors.income} />
+          <StatTile label="I owe" value={utang?.iOwe} color={colors.expense} />
+          <StatTile label="Owed to me" value={utang?.owedToMe} color={colors.income} />
         </View>
       </ScrollView>
     </SafeAreaView>

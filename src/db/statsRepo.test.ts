@@ -52,6 +52,13 @@ describe('statsRepo', () => {
     expect(rows[1].pct).toBe(25);
   });
 
+  it('labels expenses without a category as Uncategorized', async () => {
+    await addExpense(db, { amount: 10000, bucketId: cashId, date: '2026-07-05' });
+    const rows = await expensesByCategory(db, '2026-07');
+    const fallback = rows.find((r) => r.categoryId === null);
+    expect(fallback?.categoryName).toBe('Uncategorized');
+  });
+
   it('returns a six month trend ending at the given month', async () => {
     const trend = await sixMonthTrend(db, '2026-07');
     expect(trend).toHaveLength(6);

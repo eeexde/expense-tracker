@@ -54,14 +54,14 @@ export default function PayUtangScreen() {
   return (
     <SafeAreaView style={formStyles.screen} edges={['top', 'bottom']}>
       <Text style={formStyles.title}>
-        {isIOwe ? `Bayaran si ${debt.personName}` : `Bayad ni ${debt.personName}`}
+        {isIOwe ? `Pay ${debt.personName}` : `Payment from ${debt.personName}`}
       </Text>
       <ScrollView contentContainerStyle={formStyles.content} keyboardShouldPersistTaps="handled">
         <Text style={styles.remaining}>
-          Natitira: <Text style={styles.remainingAmount}>{formatPeso(remaining)}</Text>
+          Remaining: <Text style={styles.remainingAmount}>{formatPeso(remaining)}</Text>
         </Text>
 
-        <Text style={formStyles.label}>Halaga ng bayad</Text>
+        <Text style={formStyles.label}>Payment amount</Text>
         <TextInput
           style={[
             formStyles.textInput,
@@ -73,9 +73,9 @@ export default function PayUtangScreen() {
           placeholderTextColor={colors.inkFaint}
           keyboardType="decimal-pad"
         />
-        {overpay && <Text style={styles.error}>Sobra sa natitirang balanse.</Text>}
+        {overpay && <Text style={styles.error}>Exceeds the remaining balance.</Text>}
 
-        <Text style={formStyles.label}>{isIOwe ? 'Mula sa bucket' : 'Papunta sa bucket'}</Text>
+        <Text style={formStyles.label}>{isIOwe ? 'From bucket' : 'To bucket'}</Text>
         <ChipRow
           items={buckets.map((b) => ({ id: b.id, label: `${b.icon} ${b.name}` }))}
           selectedId={bucketId}
@@ -83,7 +83,7 @@ export default function PayUtangScreen() {
         />
 
         {error && <Text style={styles.error}>{error}</Text>}
-        <SubmitButton label="I-record ang bayad" disabled={!valid} onPress={save} />
+        <SubmitButton label="Record payment" disabled={!valid} onPress={save} />
       </ScrollView>
     </SafeAreaView>
   );

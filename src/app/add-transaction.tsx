@@ -44,7 +44,7 @@ export default function AddTransactionScreen() {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
-      <Text style={styles.title}>Bagong transaction</Text>
+      <Text style={styles.title}>New transaction</Text>
       <TransactionForm
         buckets={buckets}
         categories={categories}

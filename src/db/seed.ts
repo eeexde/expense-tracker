@@ -12,29 +12,29 @@ export const PRESET_BUCKETS = [
   { name: 'Maya', icon: '💳', color: '#00A650' },
   { name: 'BDO', icon: '🏦', color: '#003A70' },
   { name: 'BPI', icon: '🏦', color: '#B11116' },
-  { name: 'Alkansya', icon: '🐷', color: '#E65100' },
+  { name: 'Savings', icon: '🐷', color: '#E65100' },
 ] as const;
 
 export const PRESET_EXPENSE_CATEGORIES = [
   { name: 'Load', icon: '📶' },
-  { name: 'Pamasahe', icon: '🚌' },
-  { name: 'Kuryente', icon: '⚡' },
-  { name: 'Tubig', icon: '🚰' },
+  { name: 'Transport', icon: '🚌' },
+  { name: 'Electricity', icon: '⚡' },
+  { name: 'Water', icon: '🚰' },
   { name: 'Groceries', icon: '🛒' },
-  { name: 'Kain sa labas', icon: '🍽️' },
-  { name: 'Padala', icon: '📦' },
+  { name: 'Eating Out', icon: '🍽️' },
+  { name: 'Remittance', icon: '📦' },
   { name: 'Internet', icon: '🌐' },
   { name: 'Rent', icon: '🏠' },
   { name: 'Installment', icon: '🧾' },
-  { name: 'Utang', icon: '🤝' },
-  { name: 'Iba pa', icon: '🗂️' },
+  { name: 'Debt', icon: '🤝' },
+  { name: 'Others', icon: '🗂️' },
 ] as const;
 
 export const PRESET_INCOME_CATEGORIES = [
   { name: 'Freelance', icon: '💻' },
   { name: 'Sideline', icon: '🛠️' },
-  { name: 'Utang', icon: '🤝' },
-  { name: 'Iba pa', icon: '🗂️' },
+  { name: 'Debt', icon: '🤝' },
+  { name: 'Others', icon: '🗂️' },
 ] as const;
 
 /** Insert presets only when tables are empty. Safe to run every boot. */

@@ -37,7 +37,7 @@ export default function ScanReceiptScreen() {
         },
       });
     } catch (e) {
-      setError('Hindi mabasa ang resibo. Subukan ulit.');
+      setError('Could not read the receipt. Try again.');
       setBusy(false);
     }
   };
@@ -48,13 +48,13 @@ export default function ScanReceiptScreen() {
     return (
       <SafeAreaView style={[styles.screen, styles.center]}>
         <Text style={styles.permissionText}>
-          Kailangan ng camera para ma-scan ang mga resibo.
+          Camera access is needed to scan receipts.
         </Text>
         <Pressable style={styles.primaryButton} onPress={requestPermission}>
-          <Text style={styles.primaryButtonText}>Payagan ang camera</Text>
+          <Text style={styles.primaryButtonText}>Allow camera</Text>
         </Pressable>
         <Pressable onPress={() => router.back()}>
-          <Text style={styles.cancelText}>Bumalik</Text>
+          <Text style={styles.cancelText}>Go back</Text>
         </Pressable>
       </SafeAreaView>
     );
@@ -78,7 +78,7 @@ export default function ScanReceiptScreen() {
           >
             {busy ? <ActivityIndicator color={colors.bg} /> : <View style={styles.shutterInner} />}
           </Pressable>
-          <Text style={styles.hint}>Kuhanan ang buong resibo</Text>
+          <Text style={styles.hint}>Capture the whole receipt</Text>
         </View>
       </SafeAreaView>
     </View>

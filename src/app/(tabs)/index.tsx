@@ -26,11 +26,11 @@ export default function HomeScreen() {
         <Text style={styles.brand}>Kuripot</Text>
 
         <View style={styles.hero}>
-          <Text style={styles.heroLabel}>Kabuuang pera</Text>
+          <Text style={styles.heroLabel}>Total money</Text>
           <Text style={styles.heroAmount}>{total === undefined ? '…' : formatPeso(total)}</Text>
         </View>
 
-        <Text style={styles.sectionTitle}>Mga bucket</Text>
+        <Text style={styles.sectionTitle}>Buckets</Text>
         <FlatList
           horizontal
           data={balances ?? []}
@@ -41,9 +41,9 @@ export default function HomeScreen() {
           scrollEnabled
         />
 
-        <Text style={styles.sectionTitle}>Kamakailan</Text>
+        <Text style={styles.sectionTitle}>Recent</Text>
         {recent !== undefined && recent.length === 0 && (
-          <Text style={styles.empty}>Wala pang transactions. Pindutin ang + para magsimula.</Text>
+          <Text style={styles.empty}>No transactions yet. Tap + to get started.</Text>
         )}
         {(recent ?? []).map((txn) => (
           <TransactionRow

@@ -57,18 +57,18 @@ export default function AddInstallmentScreen() {
 
   return (
     <SafeAreaView style={formStyles.screen} edges={['top', 'bottom']}>
-      <Text style={formStyles.title}>Bagong hulugan</Text>
+      <Text style={formStyles.title}>New installment</Text>
       <ScrollView contentContainerStyle={formStyles.content} keyboardShouldPersistTaps="handled">
         <Text style={formStyles.label}>Item</Text>
         <TextInput
           style={formStyles.textInput}
           value={itemName}
           onChangeText={setItemName}
-          placeholder="Hal. Washing machine (Home Credit)"
+          placeholder="e.g. Washing machine (Home Credit)"
           placeholderTextColor={colors.inkFaint}
         />
 
-        <Text style={formStyles.label}>Buwanang hulog</Text>
+        <Text style={formStyles.label}>Monthly payment</Text>
         <TextInput
           style={[
             formStyles.textInput,
@@ -81,7 +81,7 @@ export default function AddInstallmentScreen() {
           keyboardType="decimal-pad"
         />
 
-        <Text style={formStyles.label}>Ilang buwan</Text>
+        <Text style={formStyles.label}>Number of months</Text>
         <TextInput
           style={[
             formStyles.textInput,
@@ -89,12 +89,12 @@ export default function AddInstallmentScreen() {
           ]}
           value={monthsText}
           onChangeText={setMonthsText}
-          placeholder="Hal. 12"
+          placeholder="e.g. 12"
           placeholderTextColor={colors.inkFaint}
           keyboardType="number-pad"
         />
 
-        <Text style={formStyles.label}>Araw ng buwan (1–31)</Text>
+        <Text style={formStyles.label}>Day of month (1–31)</Text>
         <TextInput
           style={[formStyles.textInput, !dayValid && formStyles.textInputError]}
           value={dayDueText}
@@ -102,14 +102,14 @@ export default function AddInstallmentScreen() {
           keyboardType="number-pad"
         />
 
-        <Text style={formStyles.label}>Mula sa bucket</Text>
+        <Text style={formStyles.label}>From bucket</Text>
         <ChipRow
           items={buckets.map((b) => ({ id: b.id, label: `${b.icon} ${b.name}` }))}
           selectedId={bucketId}
           onSelect={setBucketId}
         />
 
-        <SubmitButton label="I-save" disabled={!valid} onPress={save} />
+        <SubmitButton label="Save" disabled={!valid} onPress={save} />
       </ScrollView>
     </SafeAreaView>
   );

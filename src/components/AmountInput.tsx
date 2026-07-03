@@ -36,7 +36,7 @@ export function AmountInput({ onChangeAmount, initialText = '', autoFocus }: Pro
           testID="amount-input"
         />
       </View>
-      {invalid && <Text style={styles.error}>Hindi valid na halaga</Text>}
+      {invalid && <Text style={styles.error}>Invalid amount</Text>}
     </View>
   );
 }

@@ -22,10 +22,10 @@ export default function TransactionsScreen() {
   const bucketById = new Map((allBuckets ?? []).map((b) => [b.id, b]));
 
   const confirmDelete = (txn: Transaction) => {
-    Alert.alert('Burahin?', `${formatPeso(txn.amount)} — ${txn.note ?? txn.date}`, [
-      { text: 'Kanselahin', style: 'cancel' },
+    Alert.alert('Delete?', `${formatPeso(txn.amount)} — ${txn.note ?? txn.date}`, [
+      { text: 'Cancel', style: 'cancel' },
       {
-        text: 'Burahin',
+        text: 'Delete',
         style: 'destructive',
         onPress: async () => {
           await deleteTransaction(db, txn.id);
@@ -49,7 +49,7 @@ export default function TransactionsScreen() {
 
       <ScrollView contentContainerStyle={styles.content}>
         {txns !== undefined && txns.length === 0 && (
-          <Text style={styles.empty}>Walang transactions ngayong buwan.</Text>
+          <Text style={styles.empty}>No transactions this month.</Text>
         )}
         {(txns ?? []).map((txn) => (
           <TransactionRow

@@ -30,7 +30,7 @@ export const colors = {
  * Chart-only palette, validated (dataviz six checks) against `surface`
  * for dark mode: lightness band, chroma floor, CVD all-pairs ΔE ≥ 12,
  * contrast ≥ 3:1. Fixed order — assign in sequence, never cycle.
- * `chartOther` is the neutral "Iba pa" slot; it always carries a label.
+ * `chartOther` is the neutral "Others" slot; it always carries a label.
  */
 export const chartCategorical = [
   '#B8860B',

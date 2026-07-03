@@ -39,8 +39,8 @@ interface Props {
 }
 
 const KINDS: { kind: TxnKind; label: string }[] = [
-  { kind: 'expense', label: 'Gastos' },
-  { kind: 'income', label: 'Kita' },
+  { kind: 'expense', label: 'Expense' },
+  { kind: 'income', label: 'Income' },
   { kind: 'transfer', label: 'Transfer' },
 ];
 
@@ -120,7 +120,7 @@ export function TransactionForm({
 
       <AmountInput onChangeAmount={setAmount} initialText={initialAmountText} autoFocus />
 
-      <Text style={styles.label}>{kind === 'transfer' ? 'Mula sa' : 'Bucket'}</Text>
+      <Text style={styles.label}>{kind === 'transfer' ? 'From' : 'Bucket'}</Text>
       <ChipRow
         items={buckets.map((b) => ({ id: b.id, label: `${b.icon} ${b.name}` }))}
         selectedId={bucketId}
@@ -130,7 +130,7 @@ export function TransactionForm({
 
       {kind === 'transfer' && (
         <>
-          <Text style={styles.label}>Papunta sa</Text>
+          <Text style={styles.label}>To</Text>
           <ChipRow
             items={buckets
               .filter((b) => b.id !== bucketId)
@@ -154,7 +154,7 @@ export function TransactionForm({
         </>
       )}
 
-      <Text style={styles.label}>Petsa</Text>
+      <Text style={styles.label}>Date</Text>
       <TextInput
         style={[styles.textInput, !dateValid && styles.textInputError]}
         value={date}
@@ -176,13 +176,13 @@ export function TransactionForm({
 
       {kind === 'expense' && onScanReceipt && (
         <Pressable style={styles.scanButton} onPress={onScanReceipt} accessibilityRole="button">
-          <Text style={styles.scanText}>📷 I-scan ang resibo</Text>
+          <Text style={styles.scanText}>📷 Scan receipt</Text>
         </Pressable>
       )}
       {receiptPhotoUri && (
         <View style={styles.receiptRow}>
           <Image source={{ uri: receiptPhotoUri }} style={styles.receiptThumb} contentFit="cover" />
-          <Text style={styles.receiptNote}>Resibo naka-attach ✓</Text>
+          <Text style={styles.receiptNote}>Receipt attached ✓</Text>
         </View>
       )}
 
@@ -193,7 +193,7 @@ export function TransactionForm({
         accessibilityRole="button"
         testID="submit"
       >
-        <Text style={styles.submitText}>I-save</Text>
+        <Text style={styles.submitText}>Save</Text>
       </Pressable>
     </ScrollView>
   );
