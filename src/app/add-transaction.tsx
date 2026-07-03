@@ -5,6 +5,7 @@ import { TransactionForm, TransactionFormValues } from '@/components/Transaction
 import { useDb } from '@/db/DbProvider';
 import { useAppQuery } from '@/db/hooks';
 import { addExpense, addIncome, addTransfer } from '@/db/repo';
+import { listOpenUtang, recordLinkedUtangPayment } from '@/db/utangRepo';
 import { buckets as bucketsTable, categories as categoriesTable } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { colors, fonts, spacing } from '@/theme';
@@ -23,6 +24,7 @@ export default function AddTransactionScreen() {
     db.select().from(bucketsTable).where(eq(bucketsTable.archived, false)),
   );
   const categories = useAppQuery((db) => db.select().from(categoriesTable));
+  const openUtang = useAppQuery((db) => listOpenUtang(db));
 
   const save = async (values: TransactionFormValues) => {
     const input = {
@@ -32,7 +34,18 @@ export default function AddTransactionScreen() {
       categoryId: values.categoryId,
       note: values.note,
       receiptPhotoUri: values.receiptPhotoUri,
+      utangId: values.utangId,
     };
+    if (values.kind !== 'transfer' && values.utangId !== undefined) {
+      // Validates direction + remaining, records the payment; the transaction
+      // below is the single money log (no double entry).
+      await recordLinkedUtangPayment(db, values.kind, {
+        utangId: values.utangId,
+        amount: values.amount,
+        date: values.date,
+        bucketId: values.bucketId,
+      });
+    }
     if (values.kind === 'expense') await addExpense(db, input);
     else if (values.kind === 'income') await addIncome(db, input);
     else await addTransfer(db, { ...input, toBucketId: values.toBucketId! });
@@ -48,6 +61,7 @@ export default function AddTransactionScreen() {
       <TransactionForm
         buckets={buckets}
         categories={categories}
+        openUtang={openUtang}
         onSubmit={save}
         onScanReceipt={() => router.push('/scan-receipt')}
         initialAmountText={params.amountText}

@@ -24,6 +24,8 @@ export interface NewTransactionInput {
   receiptPhotoUri?: string;
   recurringId?: number;
   installmentId?: number;
+  /** Links this expense/income to an open utang it pays down. */
+  utangId?: number;
 }
 
 function assertPositive(amount: number): void {

@@ -1,0 +1,1 @@
+ALTER TABLE `transactions` ADD `utang_id` integer REFERENCES utang(id);

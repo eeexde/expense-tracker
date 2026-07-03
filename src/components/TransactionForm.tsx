@@ -9,7 +9,8 @@ import {
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Bucket, Category } from '@/db/schema';
-import { parsePesoInput } from '@/lib/money';
+import { UtangWithRemaining } from '@/db/utangRepo';
+import { formatPeso, parsePesoInput } from '@/lib/money';
 import { AmountInput } from './AmountInput';
 import { colors, fonts, radii, spacing, todayLocal } from '@/theme';
 
@@ -24,12 +25,16 @@ export interface TransactionFormValues {
   note?: string;
   date: string;
   receiptPhotoUri?: string;
+  /** Open utang this expense/income pays down. */
+  utangId?: number;
 }
 
 interface Props {
   buckets: Bucket[];
   categories: Category[];
   onSubmit: (values: TransactionFormValues) => void;
+  /** Open debts offered for linking. Hidden when omitted or empty. */
+  openUtang?: UtangWithRemaining[];
   /** Opens the receipt scanner (Task 11). Hidden when omitted. */
   onScanReceipt?: () => void;
   initialKind?: TxnKind;
@@ -50,6 +55,7 @@ export function TransactionForm({
   buckets,
   categories,
   onSubmit,
+  openUtang,
   onScanReceipt,
   initialKind = 'expense',
   initialAmountText,
@@ -65,17 +71,32 @@ export function TransactionForm({
   const [categoryId, setCategoryId] = useState<number | undefined>(undefined);
   const [note, setNote] = useState(initialNote ?? '');
   const [date, setDate] = useState(todayLocal());
+  const [utangId, setUtangId] = useState<number | undefined>(undefined);
 
   const kindCategories = useMemo(
     () => categories.filter((c) => c.type === (kind === 'income' ? 'income' : 'expense')),
     [categories, kind],
   );
 
+  // Expenses pay down my own debts; incomes collect what's owed to me.
+  const linkableUtang = useMemo(
+    () =>
+      kind === 'transfer'
+        ? []
+        : (openUtang ?? []).filter(
+            (u) => u.direction === (kind === 'expense' ? 'iOwe' : 'owedToMe'),
+          ),
+    [openUtang, kind],
+  );
+  const linkedUtang = linkableUtang.find((u) => u.id === utangId);
+  const overpaysLink = linkedUtang !== undefined && amount !== null && amount > linkedUtang.remaining;
+
   const dateValid = DATE_RE.test(date);
   const valid =
     amount !== null &&
     bucketId !== undefined &&
     dateValid &&
+    !overpaysLink &&
     (kind !== 'transfer' || (toBucketId !== undefined && toBucketId !== bucketId));
 
   const submit = () => {
@@ -89,6 +110,7 @@ export function TransactionForm({
       note: note.trim() || undefined,
       date,
       receiptPhotoUri,
+      utangId: linkedUtang?.id,
     });
   };
 
@@ -106,6 +128,7 @@ export function TransactionForm({
             onPress={() => {
               setKind(k);
               setCategoryId(undefined);
+              setUtangId(undefined);
             }}
             accessibilityRole="button"
             accessibilityState={{ selected: kind === k }}
@@ -151,6 +174,24 @@ export function TransactionForm({
             onSelect={(id) => setCategoryId(categoryId === id ? undefined : id)}
             testIDPrefix="category"
           />
+        </>
+      )}
+
+      {linkableUtang.length > 0 && (
+        <>
+          <Text style={styles.label}>Link to debt (optional)</Text>
+          <ChipRow
+            items={linkableUtang.map((u) => ({
+              id: u.id,
+              label: `🤝 ${u.personName} · ${formatPeso(u.remaining)}`,
+            }))}
+            selectedId={utangId}
+            onSelect={(id) => setUtangId(utangId === id ? undefined : id)}
+            testIDPrefix="utang"
+          />
+          {overpaysLink && (
+            <Text style={styles.linkError}>Amount exceeds the remaining balance.</Text>
+          )}
         </>
       )}
 
@@ -281,6 +322,7 @@ const styles = StyleSheet.create({
     color: colors.ink,
   },
   textInputError: { borderColor: colors.danger },
+  linkError: { fontFamily: fonts.body, fontSize: 13, color: colors.danger },
   scanButton: {
     borderColor: colors.border,
     borderWidth: 1,

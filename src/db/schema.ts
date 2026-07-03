@@ -37,6 +37,8 @@ export const transactions = sqliteTable(
     date: text('date').notNull(),
     recurringId: integer('recurring_id').references(() => recurring.id),
     installmentId: integer('installment_id').references(() => installments.id),
+    /** Set when this expense/income doubles as a payment on an open utang. */
+    utangId: integer('utang_id').references(() => utang.id),
     createdAt: text('created_at')
       .notNull()
       .$defaultFn(() => new Date().toISOString()),

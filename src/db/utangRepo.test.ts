@@ -1,7 +1,15 @@
-import { buckets } from './schema';
+import { buckets, transactions } from './schema';
 import { createTestDb, TestDb } from './testDb';
-import { bucketBalance } from './repo';
-import { addUtang, addUtangPayment, listUtang, utangRemaining, utangTotals } from './utangRepo';
+import { addExpense, bucketBalance } from './repo';
+import {
+  addUtang,
+  addUtangPayment,
+  listOpenUtang,
+  listUtang,
+  recordLinkedUtangPayment,
+  utangRemaining,
+  utangTotals,
+} from './utangRepo';
 
 describe('utangRepo', () => {
   let db: TestDb;
@@ -57,5 +65,90 @@ describe('utangRepo', () => {
     await expect(
       addUtangPayment(db, { utangId: u.id, amount: 20000, date: '2026-07-01', bucketId }),
     ).rejects.toThrow();
+  });
+
+  describe('linked payments (transaction form path)', () => {
+    it('records the payment without logging its own transaction', async () => {
+      const u = await addUtang(db, { personName: 'Juan', direction: 'iOwe', originalAmount: 50000 });
+      await recordLinkedUtangPayment(db, 'expense', {
+        utangId: u.id,
+        amount: 20000,
+        date: '2026-07-01',
+        bucketId,
+      });
+      expect(await utangRemaining(db, u.id)).toBe(30000);
+      // no transaction was written — the caller logs its own linked expense
+      expect(await db.select().from(transactions)).toHaveLength(0);
+
+      // the form then saves exactly one expense carrying the link
+      await addExpense(db, { amount: 20000, bucketId, date: '2026-07-01', utangId: u.id });
+      const txns = await db.select().from(transactions);
+      expect(txns).toHaveLength(1);
+      expect(txns[0].utangId).toBe(u.id);
+      expect(await bucketBalance(db, bucketId)).toBe(80000);
+    });
+
+    it('collecting on an owedToMe debt works via income kind', async () => {
+      const u = await addUtang(db, {
+        personName: 'Maria',
+        direction: 'owedToMe',
+        originalAmount: 40000,
+      });
+      await recordLinkedUtangPayment(db, 'income', {
+        utangId: u.id,
+        amount: 15000,
+        date: '2026-07-01',
+        bucketId,
+      });
+      expect(await utangRemaining(db, u.id)).toBe(25000);
+    });
+
+    it('rejects overpayment', async () => {
+      const u = await addUtang(db, { personName: 'Juan', direction: 'iOwe', originalAmount: 10000 });
+      await expect(
+        recordLinkedUtangPayment(db, 'expense', {
+          utangId: u.id,
+          amount: 20000,
+          date: '2026-07-01',
+          bucketId,
+        }),
+      ).rejects.toThrow(/exceeds/i);
+      expect(await db.select().from(transactions)).toHaveLength(0);
+    });
+
+    it('rejects direction mismatches', async () => {
+      const iOwe = await addUtang(db, { personName: 'Juan', direction: 'iOwe', originalAmount: 10000 });
+      const owedToMe = await addUtang(db, {
+        personName: 'Maria',
+        direction: 'owedToMe',
+        originalAmount: 10000,
+      });
+      await expect(
+        recordLinkedUtangPayment(db, 'income', {
+          utangId: iOwe.id,
+          amount: 5000,
+          date: '2026-07-01',
+          bucketId,
+        }),
+      ).rejects.toThrow();
+      await expect(
+        recordLinkedUtangPayment(db, 'expense', {
+          utangId: owedToMe.id,
+          amount: 5000,
+          date: '2026-07-01',
+          bucketId,
+        }),
+      ).rejects.toThrow();
+    });
+
+    it('lists only debts that still have a balance', async () => {
+      const a = await addUtang(db, { personName: 'Juan', direction: 'iOwe', originalAmount: 10000 });
+      await addUtang(db, { personName: 'Maria', direction: 'owedToMe', originalAmount: 20000 });
+      await addUtangPayment(db, { utangId: a.id, amount: 10000, date: '2026-07-01', bucketId });
+      const open = await listOpenUtang(db);
+      expect(open).toHaveLength(1);
+      expect(open[0].personName).toBe('Maria');
+      expect(open[0].remaining).toBe(20000);
+    });
   });
 });
