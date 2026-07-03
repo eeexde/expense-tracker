@@ -40,6 +40,10 @@ export default function RootLayout() {
       >
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="add-transaction" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="add-recurring" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="add-installment" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="add-utang" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="pay-utang" options={{ presentation: 'modal' }} />
         <Stack.Screen name="scan-receipt" options={{ presentation: 'fullScreenModal' }} />
       </Stack>
     </DbProvider>
