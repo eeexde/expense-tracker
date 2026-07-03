@@ -82,6 +82,7 @@ export async function deleteTransaction(db: Db, id: number): Promise<void> {
 
 export interface TransactionFilter {
   month?: string; // YYYY-MM
+  type?: 'expense' | 'income' | 'transfer';
   bucketId?: number;
   categoryId?: number;
   limit?: number;
@@ -93,6 +94,7 @@ export async function listTransactions(
 ): Promise<Transaction[]> {
   const conditions = [];
   if (filter.month) conditions.push(like(transactions.date, `${filter.month}-%`));
+  if (filter.type) conditions.push(eq(transactions.type, filter.type));
   if (filter.bucketId !== undefined) conditions.push(eq(transactions.bucketId, filter.bucketId));
   if (filter.categoryId !== undefined)
     conditions.push(eq(transactions.categoryId, filter.categoryId));

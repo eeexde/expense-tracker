@@ -64,6 +64,27 @@ describe('repo', () => {
     expect(julyCash[0].amount).toBe(200);
   });
 
+  it('lists transactions filtered by type', async () => {
+    const { cash, gcash } = await makeBuckets(db);
+    await addExpense(db, { amount: 100, bucketId: cash.id, date: '2026-07-01' });
+    await addIncome(db, { amount: 200, bucketId: cash.id, date: '2026-07-02' });
+    await addTransfer(db, { amount: 300, bucketId: cash.id, toBucketId: gcash.id, date: '2026-07-03' });
+
+    const incomes = await listTransactions(db, { type: 'income' });
+    expect(incomes).toHaveLength(1);
+    expect(incomes[0].amount).toBe(200);
+
+    // combines with month + bucket
+    const julyCashExpenses = await listTransactions(db, {
+      month: '2026-07',
+      type: 'expense',
+      bucketId: cash.id,
+    });
+    expect(julyCashExpenses).toHaveLength(1);
+    expect(julyCashExpenses[0].amount).toBe(100);
+    expect(await listTransactions(db, { month: '2026-06', type: 'expense' })).toHaveLength(0);
+  });
+
   it('rejects non-positive amounts', async () => {
     const { cash } = await makeBuckets(db);
     await expect(addExpense(db, { amount: 0, bucketId: cash.id, date: '2026-07-01' })).rejects.toThrow();

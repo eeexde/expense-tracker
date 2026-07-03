@@ -8,13 +8,27 @@ import { deleteTransaction, listTransactions } from '@/db/repo';
 import { buckets as bucketsTable, categories as categoriesTable, Transaction } from '@/db/schema';
 import { formatPeso } from '@/lib/money';
 import { monthLabel, shiftMonth } from '@/lib/months';
-import { colors, currentMonth, fonts, spacing } from '@/theme';
+import { colors, currentMonth, fonts, radii, spacing } from '@/theme';
+
+type TxnType = 'expense' | 'income' | 'transfer';
+
+const TYPE_OPTIONS: { value: TxnType; label: string }[] = [
+  { value: 'expense', label: 'Expense' },
+  { value: 'income', label: 'Income' },
+  { value: 'transfer', label: 'Transfer' },
+];
 
 export default function TransactionsScreen() {
   const { db, refresh } = useDb();
   const [month, setMonth] = useState(currentMonth());
+  const [type, setType] = useState<TxnType | undefined>(undefined);
+  const [bucketId, setBucketId] = useState<number | undefined>(undefined);
+  const [categoryId, setCategoryId] = useState<number | undefined>(undefined);
 
-  const txns = useAppQuery((db) => listTransactions(db, { month }), [month]);
+  const txns = useAppQuery(
+    (db) => listTransactions(db, { month, type, bucketId, categoryId }),
+    [month, type, bucketId, categoryId],
+  );
   const allCategories = useAppQuery((db) => db.select().from(categoriesTable));
   const allBuckets = useAppQuery((db) => db.select().from(bucketsTable));
 
@@ -47,9 +61,33 @@ export default function TransactionsScreen() {
         </Pressable>
       </View>
 
+      <FilterRow
+        allLabel="All"
+        items={TYPE_OPTIONS.map((o) => ({ key: o.value, label: o.label }))}
+        selectedKey={type}
+        onSelect={(key) => setType(key as TxnType | undefined)}
+        testIDPrefix="filter-type"
+      />
+      <FilterRow
+        allLabel="All buckets"
+        items={(allBuckets ?? [])
+          .filter((b) => !b.archived)
+          .map((b) => ({ key: b.id, label: `${b.icon} ${b.name}` }))}
+        selectedKey={bucketId}
+        onSelect={(key) => setBucketId(key as number | undefined)}
+        testIDPrefix="filter-bucket"
+      />
+      <FilterRow
+        allLabel="All categories"
+        items={(allCategories ?? []).map((c) => ({ key: c.id, label: `${c.icon} ${c.name}` }))}
+        selectedKey={categoryId}
+        onSelect={(key) => setCategoryId(key as number | undefined)}
+        testIDPrefix="filter-category"
+      />
+
       <ScrollView contentContainerStyle={styles.content}>
         {txns !== undefined && txns.length === 0 && (
-          <Text style={styles.empty}>No transactions this month.</Text>
+          <Text style={styles.empty}>No matching transactions this month.</Text>
         )}
         {(txns ?? []).map((txn) => (
           <TransactionRow
@@ -66,8 +104,62 @@ export default function TransactionsScreen() {
   );
 }
 
+/** One horizontal chip row; the leading "All" chip clears the filter. */
+function FilterRow({
+  allLabel,
+  items,
+  selectedKey,
+  onSelect,
+  testIDPrefix,
+}: {
+  allLabel: string;
+  items: { key: string | number; label: string }[];
+  selectedKey: string | number | undefined;
+  onSelect: (key: string | number | undefined) => void;
+  testIDPrefix: string;
+}) {
+  const chips = [{ key: undefined as string | number | undefined, label: allLabel }, ...items];
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={styles.filterRow}
+      contentContainerStyle={styles.filterRowContent}
+    >
+      {chips.map((chip) => {
+        const selected = chip.key === selectedKey;
+        return (
+          <Pressable
+            key={chip.key ?? 'all'}
+            style={[styles.chip, selected && styles.chipActive]}
+            onPress={() => onSelect(chip.key)}
+            accessibilityRole="button"
+            accessibilityState={{ selected }}
+            testID={`${testIDPrefix}-${chip.key ?? 'all'}`}
+          >
+            <Text style={[styles.chipText, selected && styles.chipTextActive]}>{chip.label}</Text>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
+  );
+}
+
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
+  filterRow: { flexGrow: 0, marginBottom: spacing.xs },
+  filterRowContent: { gap: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.xs },
+  chip: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: radii.pill,
+    paddingVertical: spacing.xs + 2,
+    paddingHorizontal: spacing.sm + spacing.xs,
+  },
+  chipActive: { backgroundColor: colors.surfaceRaised, borderColor: colors.gold },
+  chipText: { fontFamily: fonts.bodyMedium, fontSize: 12, color: colors.inkDim },
+  chipTextActive: { color: colors.ink },
   monthNav: {
     flexDirection: 'row',
     alignItems: 'center',
