@@ -125,6 +125,9 @@ export default function StatsScreen() {
         )}
 
         <Text style={styles.sectionTitle}>Last 6 months</Text>
+        {barData.length === 0 ? (
+          <Text style={styles.empty}>No data yet.</Text>
+        ) : (
         <View style={styles.card}>
           <View style={styles.legendInline}>
             <View style={[styles.legendDot, { backgroundColor: chartIncome }]} />
@@ -149,6 +152,7 @@ export default function StatsScreen() {
             disableScroll
           />
         </View>
+        )}
 
         <Text style={styles.sectionTitle}>Money per bucket</Text>
         <View style={styles.card}>
