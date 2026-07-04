@@ -1,17 +1,13 @@
 import { useMemo, useState } from 'react';
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Image } from 'expo-image';
 import { Bucket, Category } from '@/db/schema';
+import { InstallmentWithRemaining } from '@/db/installmentRepo';
 import { UtangWithRemaining } from '@/db/utangRepo';
 import { formatPeso, parsePesoInput } from '@/lib/money';
 import { AmountInput } from './AmountInput';
+import { ChipRow } from './form';
+import { Icon } from './Icon';
 import { colors, fonts, radii, spacing, todayLocal } from '@/theme';
 
 export type TxnKind = 'expense' | 'income' | 'transfer';
@@ -27,6 +23,8 @@ export interface TransactionFormValues {
   receiptPhotoUri?: string;
   /** Open utang this expense/income pays down. */
   utangId?: number;
+  /** Installment plan this expense pays (advance payments welcome). */
+  installmentId?: number;
 }
 
 interface Props {
@@ -35,6 +33,8 @@ interface Props {
   onSubmit: (values: TransactionFormValues) => void;
   /** Open debts offered for linking. Hidden when omitted or empty. */
   openUtang?: UtangWithRemaining[];
+  /** Open installment plans offered for (advance) payment linking. */
+  openInstallments?: InstallmentWithRemaining[];
   /** Opens the receipt scanner (Task 11). Hidden when omitted. */
   onScanReceipt?: () => void;
   initialKind?: TxnKind;
@@ -56,6 +56,7 @@ export function TransactionForm({
   categories,
   onSubmit,
   openUtang,
+  openInstallments,
   onScanReceipt,
   initialKind = 'expense',
   initialAmountText,
@@ -72,6 +73,7 @@ export function TransactionForm({
   const [note, setNote] = useState(initialNote ?? '');
   const [date, setDate] = useState(todayLocal());
   const [utangId, setUtangId] = useState<number | undefined>(undefined);
+  const [installmentId, setInstallmentId] = useState<number | undefined>(undefined);
 
   const kindCategories = useMemo(
     () => categories.filter((c) => c.type === (kind === 'income' ? 'income' : 'expense')),
@@ -91,12 +93,19 @@ export function TransactionForm({
   const linkedUtang = linkableUtang.find((u) => u.id === utangId);
   const overpaysLink = linkedUtang !== undefined && amount !== null && amount > linkedUtang.remaining;
 
+  // Installment payments are always expenses.
+  const linkableInstallments = kind === 'expense' ? openInstallments ?? [] : [];
+  const linkedInstallment = linkableInstallments.find((p) => p.id === installmentId);
+  const overpaysInstallment =
+    linkedInstallment !== undefined && amount !== null && amount > linkedInstallment.remaining;
+
   const dateValid = DATE_RE.test(date);
   const valid =
     amount !== null &&
     bucketId !== undefined &&
     dateValid &&
     !overpaysLink &&
+    !overpaysInstallment &&
     (kind !== 'transfer' || (toBucketId !== undefined && toBucketId !== bucketId));
 
   const submit = () => {
@@ -111,6 +120,7 @@ export function TransactionForm({
       date,
       receiptPhotoUri,
       utangId: linkedUtang?.id,
+      installmentId: linkedInstallment?.id,
     });
   };
 
@@ -129,6 +139,7 @@ export function TransactionForm({
               setKind(k);
               setCategoryId(undefined);
               setUtangId(undefined);
+              setInstallmentId(undefined);
             }}
             accessibilityRole="button"
             accessibilityState={{ selected: kind === k }}
@@ -145,7 +156,7 @@ export function TransactionForm({
 
       <Text style={styles.label}>{kind === 'transfer' ? 'From' : 'Bucket'}</Text>
       <ChipRow
-        items={buckets.map((b) => ({ id: b.id, label: `${b.icon} ${b.name}` }))}
+        items={buckets.map((b) => ({ id: b.id, label: b.name, icon: b.icon }))}
         selectedId={bucketId}
         onSelect={setBucketId}
         testIDPrefix="bucket"
@@ -157,7 +168,7 @@ export function TransactionForm({
           <ChipRow
             items={buckets
               .filter((b) => b.id !== bucketId)
-              .map((b) => ({ id: b.id, label: `${b.icon} ${b.name}` }))}
+              .map((b) => ({ id: b.id, label: b.name, icon: b.icon }))}
             selectedId={toBucketId}
             onSelect={setToBucketId}
             testIDPrefix="to-bucket"
@@ -169,7 +180,7 @@ export function TransactionForm({
         <>
           <Text style={styles.label}>Category</Text>
           <ChipRow
-            items={kindCategories.map((c) => ({ id: c.id, label: `${c.icon} ${c.name}` }))}
+            items={kindCategories.map((c) => ({ id: c.id, label: c.name, icon: c.icon }))}
             selectedId={categoryId}
             onSelect={(id) => setCategoryId(categoryId === id ? undefined : id)}
             testIDPrefix="category"
@@ -183,13 +194,44 @@ export function TransactionForm({
           <ChipRow
             items={linkableUtang.map((u) => ({
               id: u.id,
-              label: `🤝 ${u.personName} · ${formatPeso(u.remaining)}`,
+              label: `${u.personName} · ${formatPeso(u.remaining)}`,
+              icon: 'users',
             }))}
             selectedId={utangId}
-            onSelect={(id) => setUtangId(utangId === id ? undefined : id)}
+            onSelect={(id) => {
+              setUtangId(utangId === id ? undefined : id);
+              setInstallmentId(undefined);
+            }}
             testIDPrefix="utang"
           />
           {overpaysLink && (
+            <Text style={styles.linkError}>Amount exceeds the remaining balance.</Text>
+          )}
+        </>
+      )}
+
+      {linkableInstallments.length > 0 && (
+        <>
+          <Text style={styles.label}>Pay installment (optional)</Text>
+          <ChipRow
+            items={linkableInstallments.map((p) => ({
+              id: p.id,
+              label: `${p.itemName} · ${formatPeso(p.remaining)}`,
+              icon: 'calendar',
+            }))}
+            selectedId={installmentId}
+            onSelect={(id) => {
+              setInstallmentId(installmentId === id ? undefined : id);
+              setUtangId(undefined);
+            }}
+            testIDPrefix="installment"
+          />
+          {linkedInstallment && !overpaysInstallment && (
+            <Text style={styles.linkHint}>
+              Paying ahead is fine — future months are skipped automatically.
+            </Text>
+          )}
+          {overpaysInstallment && (
             <Text style={styles.linkError}>Amount exceeds the remaining balance.</Text>
           )}
         </>
@@ -217,7 +259,8 @@ export function TransactionForm({
 
       {kind === 'expense' && onScanReceipt && (
         <Pressable style={styles.scanButton} onPress={onScanReceipt} accessibilityRole="button">
-          <Text style={styles.scanText}>📷 Scan receipt</Text>
+          <Icon name="camera" size={16} color={colors.inkDim} />
+          <Text style={styles.scanText}>Scan receipt</Text>
         </Pressable>
       )}
       {receiptPhotoUri && (
@@ -237,38 +280,6 @@ export function TransactionForm({
         <Text style={styles.submitText}>Save</Text>
       </Pressable>
     </ScrollView>
-  );
-}
-
-function ChipRow({
-  items,
-  selectedId,
-  onSelect,
-  testIDPrefix,
-}: {
-  items: { id: number; label: string }[];
-  selectedId: number | undefined;
-  onSelect: (id: number) => void;
-  testIDPrefix: string;
-}) {
-  return (
-    <View style={styles.chipRow}>
-      {items.map((item) => {
-        const selected = item.id === selectedId;
-        return (
-          <Pressable
-            key={item.id}
-            style={[styles.chip, selected && styles.chipActive]}
-            onPress={() => onSelect(item.id)}
-            accessibilityRole="button"
-            accessibilityState={{ selected }}
-            testID={`${testIDPrefix}-${item.id}`}
-          >
-            <Text style={[styles.chipText, selected && styles.chipTextActive]}>{item.label}</Text>
-          </Pressable>
-        );
-      })}
-    </View>
   );
 }
 
@@ -299,18 +310,6 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginTop: spacing.sm,
   },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  chip: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: radii.pill,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-  },
-  chipActive: { backgroundColor: colors.surfaceRaised, borderColor: colors.gold },
-  chipText: { fontFamily: fonts.bodyMedium, fontSize: 13, color: colors.inkDim },
-  chipTextActive: { color: colors.ink },
   textInput: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
@@ -323,7 +322,11 @@ const styles = StyleSheet.create({
   },
   textInputError: { borderColor: colors.danger },
   linkError: { fontFamily: fonts.body, fontSize: 13, color: colors.danger },
+  linkHint: { fontFamily: fonts.body, fontSize: 12, color: colors.inkFaint },
   scanButton: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: spacing.sm,
     borderColor: colors.border,
     borderWidth: 1,
     borderStyle: 'dashed',

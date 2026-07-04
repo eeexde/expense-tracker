@@ -36,6 +36,7 @@ export default function EditBucketScreen() {
           name: bucket.name,
           icon: bucket.icon,
           color: bucket.color,
+          type: bucket.type,
           startingBalance: bucket.startingBalance,
         }}
         onSubmit={save}

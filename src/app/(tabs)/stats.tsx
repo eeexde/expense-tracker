@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BarChart, PieChart } from 'react-native-gifted-charts';
+import { Icon } from '@/components/Icon';
 import { useAppQuery } from '@/db/hooks';
 import { allBucketBalances, totalMoney } from '@/db/repo';
 import { expensesByCategory, monthSummary, sixMonthTrend } from '@/db/statsRepo';
@@ -51,15 +52,23 @@ export default function StatsScreen() {
       : []),
   ];
 
+  // labelWidth spans the income+expense pair so month names never ellipsize;
+  // tight in-pair spacing keeps each pair reading as one month.
   const barData = (trend ?? []).flatMap((point) => [
     {
       value: point.income / 100,
       frontColor: chartIncome,
       spacing: 2,
       label: monthShort(point.ym),
-      labelTextStyle: { color: colors.inkFaint, fontSize: 10, fontFamily: fonts.body },
+      labelWidth: 38,
+      labelTextStyle: {
+        color: colors.inkFaint,
+        fontSize: 10,
+        fontFamily: fonts.body,
+        textAlign: 'center' as const,
+      },
     },
-    { value: point.expenses / 100, frontColor: chartExpense, spacing: 14 },
+    { value: point.expenses / 100, frontColor: chartExpense, spacing: 12 },
   ]);
 
   return (
@@ -158,9 +167,10 @@ export default function StatsScreen() {
         <View style={styles.card}>
           {(balances ?? []).map(({ bucket, balance }) => (
             <View key={bucket.id} style={styles.categoryRow}>
-              <Text style={styles.categoryName}>
-                {bucket.icon} {bucket.name}
-              </Text>
+              <View style={styles.bucketName}>
+                <Icon name={bucket.icon} size={15} color={colors.inkDim} />
+                <Text style={styles.categoryName}>{bucket.name}</Text>
+              </View>
               <Text style={[styles.categoryAmount, balance < 0 && { color: colors.expense }]}>
                 {balance < 0 ? `−${formatPeso(-balance)}` : formatPeso(balance)}
               </Text>
@@ -268,6 +278,7 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
     marginTop: spacing.xs,
   },
+  bucketName: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   categoryName: { fontFamily: fonts.body, fontSize: 14, color: colors.ink },
   categoryAmount: { fontFamily: fonts.display, fontSize: 14, color: colors.ink },
   totalRow: { borderTopWidth: 1 },

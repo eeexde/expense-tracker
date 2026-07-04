@@ -115,14 +115,14 @@ export default function AddRecurringScreen() {
 
         <Text style={formStyles.label}>From bucket</Text>
         <ChipRow
-          items={buckets.map((b) => ({ id: b.id, label: `${b.icon} ${b.name}` }))}
+          items={buckets.map((b) => ({ id: b.id, label: b.name, icon: b.icon }))}
           selectedId={bucketId}
           onSelect={setBucketId}
         />
 
         <Text style={formStyles.label}>Category</Text>
         <ChipRow
-          items={categories.map((c) => ({ id: c.id, label: `${c.icon} ${c.name}` }))}
+          items={categories.map((c) => ({ id: c.id, label: c.name, icon: c.icon }))}
           selectedId={categoryId}
           onSelect={(id) => setCategoryId(categoryId === id ? undefined : id)}
         />

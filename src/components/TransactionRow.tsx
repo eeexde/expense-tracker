@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { formatPeso } from '@/lib/money';
 import { Bucket, Category, Transaction } from '@/db/schema';
+import { Icon } from './Icon';
 import { colors, fonts, radii, spacing } from '@/theme';
 
 interface Props {
@@ -35,7 +36,11 @@ export function TransactionRow({ txn, category, bucket, toBucket, onPress }: Pro
       accessibilityRole="button"
     >
       <View style={styles.iconWrap}>
-        <Text style={styles.icon}>{txn.type === 'transfer' ? '🔀' : category?.icon ?? '🏷️'}</Text>
+        <Icon
+          name={txn.type === 'transfer' ? 'transfer' : category?.icon ?? 'tag'}
+          size={18}
+          color={colors.inkDim}
+        />
       </View>
       <View style={styles.middle}>
         <Text style={styles.title} numberOfLines={1}>
@@ -69,7 +74,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  icon: { fontSize: 18 },
   middle: { flex: 1, gap: 2 },
   title: { fontFamily: fonts.bodyMedium, fontSize: 15, color: colors.ink },
   subtitle: { fontFamily: fonts.body, fontSize: 12, color: colors.inkFaint },

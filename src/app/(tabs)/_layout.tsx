@@ -1,10 +1,6 @@
 import { Tabs } from 'expo-router';
-import { Text } from 'react-native';
+import { Icon } from '@/components/Icon';
 import { colors, fonts } from '@/theme';
-
-function TabIcon({ emoji, focused }: { emoji: string; focused: boolean }) {
-  return <Text style={{ fontSize: 20, opacity: focused ? 1 : 0.45 }}>{emoji}</Text>;
-}
 
 export default function TabsLayout() {
   return (
@@ -26,35 +22,35 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: 'Home',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="🏠" focused={focused} />,
+          tabBarIcon: ({ color }) => <Icon name="home" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
         name="transactions"
         options={{
           title: 'Transactions',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="🧾" focused={focused} />,
+          tabBarIcon: ({ color }) => <Icon name="list" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
         name="recurring"
         options={{
           title: 'Recurring',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="🔁" focused={focused} />,
+          tabBarIcon: ({ color }) => <Icon name="repeat" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
         name="utang"
         options={{
           title: 'Utang',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="🤝" focused={focused} />,
+          tabBarIcon: ({ color }) => <Icon name="users" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
         name="stats"
         options={{
           title: 'Stats',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="📊" focused={focused} />,
+          tabBarIcon: ({ color }) => <Icon name="chart" size={22} color={color} />,
         }}
       />
     </Tabs>

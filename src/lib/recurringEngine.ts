@@ -114,28 +114,39 @@ export async function runCatchUp(db: Db, today: string): Promise<PostedSummary> 
 
   const plans = await db.select().from(installments);
   for (const plan of plans) {
-    if (plan.monthsPaid >= plan.monthsTotal) continue;
+    if (plan.amountPaid >= plan.totalAmount) continue;
     const allDues = dueDatesBetween(
       { frequency: 'monthly', dayDue: plan.dayDue, startDate: plan.startDate },
       dayBefore(plan.startDate),
       today,
     );
-    const unpaidDues = allDues.slice(plan.monthsPaid, plan.monthsTotal);
+    // Advance payments already cover the next floor(amountPaid / monthlyDue)
+    // dues, so those months post nothing.
+    const covered = Math.min(Math.floor(plan.amountPaid / plan.monthlyDue), plan.monthsTotal);
+    const unpaidDues = allDues.slice(covered, plan.monthsTotal);
+    let amountPaid = plan.amountPaid;
     for (const date of unpaidDues) {
+      // The last due only charges what's actually left after advances.
+      const amount = Math.min(plan.monthlyDue, plan.totalAmount - amountPaid);
+      if (amount <= 0) break;
       await db.insert(transactions).values({
         type: 'expense',
-        amount: plan.monthlyDue,
+        amount,
         bucketId: plan.bucketId,
         note: plan.itemName,
         date,
         installmentId: plan.id,
       });
-      posted.push({ name: plan.itemName, amount: plan.monthlyDue, date });
+      amountPaid += amount;
+      posted.push({ name: plan.itemName, amount, date });
     }
-    if (unpaidDues.length > 0) {
+    if (amountPaid !== plan.amountPaid) {
       await db
         .update(installments)
-        .set({ monthsPaid: plan.monthsPaid + unpaidDues.length })
+        .set({
+          amountPaid,
+          monthsPaid: Math.min(Math.floor(amountPaid / plan.monthlyDue), plan.monthsTotal),
+        })
         .where(eq(installments.id, plan.id));
     }
   }

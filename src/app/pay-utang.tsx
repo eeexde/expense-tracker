@@ -77,7 +77,7 @@ export default function PayUtangScreen() {
 
         <Text style={formStyles.label}>{isIOwe ? 'From bucket' : 'To bucket'}</Text>
         <ChipRow
-          items={buckets.map((b) => ({ id: b.id, label: `${b.icon} ${b.name}` }))}
+          items={buckets.map((b) => ({ id: b.id, label: b.name, icon: b.icon }))}
           selectedId={bucketId}
           onSelect={setBucketId}
         />

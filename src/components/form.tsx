@@ -1,4 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Icon } from './Icon';
 import { colors, fonts, radii, spacing } from '@/theme';
 
 /** Shared building blocks for the small add/edit modal forms. */
@@ -9,7 +10,7 @@ export function ChipRow({
   onSelect,
   testIDPrefix,
 }: {
-  items: { id: number; label: string }[];
+  items: { id: number; label: string; icon?: string }[];
   selectedId: number | undefined;
   onSelect: (id: number) => void;
   testIDPrefix?: string;
@@ -27,6 +28,9 @@ export function ChipRow({
             accessibilityState={{ selected }}
             testID={testIDPrefix ? `${testIDPrefix}-${item.id}` : undefined}
           >
+            {item.icon && (
+              <Icon name={item.icon} size={14} color={selected ? colors.gold : colors.inkFaint} />
+            )}
             <Text style={[formStyles.chipText, selected && formStyles.chipTextActive]}>
               {item.label}
             </Text>
@@ -121,6 +125,9 @@ export const formStyles = StyleSheet.create({
   textInputError: { borderColor: colors.danger },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs + 2,
     backgroundColor: colors.surface,
     borderColor: colors.border,
     borderWidth: 1,

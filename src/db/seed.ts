@@ -6,35 +6,36 @@ type AnyDb = {
   insert: (table: any) => any;
 };
 
+/** Icon values are keys into the one-color icon set (components/Icon.tsx). */
 export const PRESET_BUCKETS = [
-  { name: 'Cash on Hand', icon: '💵', color: '#2E7D32' },
-  { name: 'GCash', icon: '📱', color: '#0057E7' },
-  { name: 'Maya', icon: '💳', color: '#00A650' },
-  { name: 'BDO', icon: '🏦', color: '#003A70' },
-  { name: 'BPI', icon: '🏦', color: '#B11116' },
-  { name: 'Savings', icon: '🐷', color: '#E65100' },
+  { name: 'Cash on Hand', icon: 'cash', color: '#2E7D32' },
+  { name: 'GCash', icon: 'phone', color: '#0057E7' },
+  { name: 'Maya', icon: 'card', color: '#00A650' },
+  { name: 'BDO', icon: 'bank', color: '#003A70' },
+  { name: 'BPI', icon: 'bank', color: '#B11116' },
+  { name: 'Savings', icon: 'savings', color: '#E65100' },
 ] as const;
 
 export const PRESET_EXPENSE_CATEGORIES = [
-  { name: 'Load', icon: '📶' },
-  { name: 'Transport', icon: '🚌' },
-  { name: 'Electricity', icon: '⚡' },
-  { name: 'Water', icon: '🚰' },
-  { name: 'Groceries', icon: '🛒' },
-  { name: 'Eating Out', icon: '🍽️' },
-  { name: 'Remittance', icon: '📦' },
-  { name: 'Internet', icon: '🌐' },
-  { name: 'Rent', icon: '🏠' },
-  { name: 'Installment', icon: '🧾' },
-  { name: 'Debt', icon: '🤝' },
-  { name: 'Others', icon: '🗂️' },
+  { name: 'Load', icon: 'signal' },
+  { name: 'Transport', icon: 'bus' },
+  { name: 'Electricity', icon: 'zap' },
+  { name: 'Water', icon: 'droplet' },
+  { name: 'Groceries', icon: 'cart' },
+  { name: 'Eating Out', icon: 'dining' },
+  { name: 'Remittance', icon: 'box' },
+  { name: 'Internet', icon: 'globe' },
+  { name: 'Rent', icon: 'home' },
+  { name: 'Installment', icon: 'receipt' },
+  { name: 'Debt', icon: 'users' },
+  { name: 'Others', icon: 'folder' },
 ] as const;
 
 export const PRESET_INCOME_CATEGORIES = [
-  { name: 'Freelance', icon: '💻' },
-  { name: 'Sideline', icon: '🛠️' },
-  { name: 'Debt', icon: '🤝' },
-  { name: 'Others', icon: '🗂️' },
+  { name: 'Freelance', icon: 'laptop' },
+  { name: 'Sideline', icon: 'wrench' },
+  { name: 'Debt', icon: 'users' },
+  { name: 'Others', icon: 'folder' },
 ] as const;
 
 /** Insert presets only when tables are empty. Safe to run every boot. */

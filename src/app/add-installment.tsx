@@ -104,7 +104,7 @@ export default function AddInstallmentScreen() {
 
         <Text style={formStyles.label}>From bucket</Text>
         <ChipRow
-          items={buckets.map((b) => ({ id: b.id, label: `${b.icon} ${b.name}` }))}
+          items={buckets.map((b) => ({ id: b.id, label: b.name, icon: b.icon }))}
           selectedId={bucketId}
           onSelect={setBucketId}
         />

@@ -10,6 +10,8 @@ export const buckets = sqliteTable('buckets', {
   name: text('name').notNull(),
   icon: text('icon').notNull().default('💰'),
   color: text('color').notNull().default('#2E7D32'),
+  /** Credit cards live mostly in the negative; payments arrive as transfers. */
+  type: text('type', { enum: ['bucket', 'credit'] }).notNull().default('bucket'),
   startingBalance: integer('starting_balance').notNull().default(0),
   archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
 });
@@ -70,6 +72,11 @@ export const installments = sqliteTable('installments', {
   monthlyDue: integer('monthly_due').notNull(),
   monthsTotal: integer('months_total').notNull(),
   monthsPaid: integer('months_paid').notNull().default(0),
+  /**
+   * Centavos paid so far (auto-posted dues + advance payments). Source of
+   * truth for what's left; monthsPaid is kept derived from it for display.
+   */
+  amountPaid: integer('amount_paid').notNull().default(0),
   dayDue: integer('day_due').notNull(),
   bucketId: integer('bucket_id')
     .notNull()

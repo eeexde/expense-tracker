@@ -10,6 +10,7 @@ import {
   recurring as recurringTable,
   Recurring,
 } from '@/db/schema';
+import { installmentRemaining } from '@/db/installmentRepo';
 import { formatPeso } from '@/lib/money';
 import { colors, fonts, radii, spacing } from '@/theme';
 
@@ -94,8 +95,8 @@ export default function RecurringScreen() {
 
 function InstallmentCard({ plan }: { plan: Installment }) {
   const monthsLeft = plan.monthsTotal - plan.monthsPaid;
-  const remaining = monthsLeft * plan.monthlyDue;
-  const done = monthsLeft <= 0;
+  const remaining = installmentRemaining(plan);
+  const done = remaining <= 0;
   return (
     <View style={styles.card}>
       <View style={styles.cardMain}>

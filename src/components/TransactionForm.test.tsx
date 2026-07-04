@@ -3,13 +3,13 @@ import { TransactionForm } from './TransactionForm';
 import { Bucket, Category } from '@/db/schema';
 
 const buckets: Bucket[] = [
-  { id: 1, name: 'Cash', icon: '💵', color: '#2E7D32', startingBalance: 0, archived: false },
-  { id: 2, name: 'GCash', icon: '📱', color: '#0057E7', startingBalance: 0, archived: false },
+  { id: 1, name: 'Cash', icon: 'cash', color: '#2E7D32', type: 'bucket', startingBalance: 0, archived: false },
+  { id: 2, name: 'GCash', icon: 'phone', color: '#0057E7', type: 'bucket', startingBalance: 0, archived: false },
 ];
 
 const categories: Category[] = [
-  { id: 10, name: 'Groceries', icon: '🛒', type: 'expense' },
-  { id: 11, name: 'Freelance', icon: '💼', type: 'income' },
+  { id: 10, name: 'Groceries', icon: 'cart', type: 'expense' },
+  { id: 11, name: 'Freelance', icon: 'laptop', type: 'income' },
 ];
 
 describe('TransactionForm', () => {
@@ -54,6 +54,45 @@ describe('TransactionForm', () => {
     await fireEvent.press(screen.getByTestId('kind-income'));
     expect(screen.getByTestId('category-11')).toBeTruthy();
     expect(screen.queryByTestId('category-10')).toBeNull();
+  });
+
+  it('links an expense to an installment and blocks overpayment', async () => {
+    const onSubmit = jest.fn();
+    const plan = {
+      id: 7,
+      itemName: 'Phone',
+      totalAmount: 600000,
+      monthlyDue: 100000,
+      monthsTotal: 6,
+      monthsPaid: 0,
+      amountPaid: 0,
+      dayDue: 10,
+      bucketId: 1,
+      startDate: '2026-01-01',
+      remaining: 600000,
+    };
+    await render(
+      <TransactionForm
+        buckets={buckets}
+        categories={categories}
+        openInstallments={[plan]}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    await fireEvent.press(screen.getByTestId('installment-7'));
+
+    // More than the remaining balance can't submit.
+    await fireEvent.changeText(screen.getByTestId('amount-input'), '7000');
+    await fireEvent.press(screen.getByTestId('submit'));
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    // Advance payment worth 2 months goes through with the link attached.
+    await fireEvent.changeText(screen.getByTestId('amount-input'), '2000');
+    await fireEvent.press(screen.getByTestId('submit'));
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'expense', amount: 200000, installmentId: 7 }),
+    );
   });
 
   it('requires a destination bucket for transfers', async () => {

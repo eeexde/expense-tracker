@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Icon } from '@/components/Icon';
 import { TransactionRow } from '@/components/TransactionRow';
 import { useDb } from '@/db/DbProvider';
 import { useAppQuery } from '@/db/hooks';
@@ -72,14 +73,14 @@ export default function TransactionsScreen() {
         allLabel="All buckets"
         items={(allBuckets ?? [])
           .filter((b) => !b.archived)
-          .map((b) => ({ key: b.id, label: `${b.icon} ${b.name}` }))}
+          .map((b) => ({ key: b.id, label: b.name, icon: b.icon }))}
         selectedKey={bucketId}
         onSelect={(key) => setBucketId(key as number | undefined)}
         testIDPrefix="filter-bucket"
       />
       <FilterRow
         allLabel="All categories"
-        items={(allCategories ?? []).map((c) => ({ key: c.id, label: `${c.icon} ${c.name}` }))}
+        items={(allCategories ?? []).map((c) => ({ key: c.id, label: c.name, icon: c.icon }))}
         selectedKey={categoryId}
         onSelect={(key) => setCategoryId(key as number | undefined)}
         testIDPrefix="filter-category"
@@ -113,12 +114,15 @@ function FilterRow({
   testIDPrefix,
 }: {
   allLabel: string;
-  items: { key: string | number; label: string }[];
+  items: { key: string | number; label: string; icon?: string }[];
   selectedKey: string | number | undefined;
   onSelect: (key: string | number | undefined) => void;
   testIDPrefix: string;
 }) {
-  const chips = [{ key: undefined as string | number | undefined, label: allLabel }, ...items];
+  const chips: { key: string | number | undefined; label: string; icon?: string }[] = [
+    { key: undefined, label: allLabel },
+    ...items,
+  ];
   return (
     <ScrollView
       horizontal
@@ -137,6 +141,9 @@ function FilterRow({
             accessibilityState={{ selected }}
             testID={`${testIDPrefix}-${chip.key ?? 'all'}`}
           >
+            {chip.icon && (
+              <Icon name={chip.icon} size={13} color={selected ? colors.gold : colors.inkFaint} />
+            )}
             <Text style={[styles.chipText, selected && styles.chipTextActive]}>{chip.label}</Text>
           </Pressable>
         );
@@ -150,6 +157,9 @@ const styles = StyleSheet.create({
   filterRow: { flexGrow: 0, marginBottom: spacing.xs },
   filterRowContent: { gap: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.xs },
   chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
     backgroundColor: colors.surface,
     borderColor: colors.border,
     borderWidth: 1,

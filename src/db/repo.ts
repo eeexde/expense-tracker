@@ -154,6 +154,7 @@ export interface NewBucketInput {
   name: string;
   icon?: string;
   color?: string;
+  type?: 'bucket' | 'credit';
   startingBalance?: number;
 }
 

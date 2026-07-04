@@ -5,6 +5,7 @@ import { TransactionForm, TransactionFormValues } from '@/components/Transaction
 import { useDb } from '@/db/DbProvider';
 import { useAppQuery } from '@/db/hooks';
 import { addExpense, addIncome, addTransfer } from '@/db/repo';
+import { listOpenInstallments, recordLinkedInstallmentPayment } from '@/db/installmentRepo';
 import { listOpenUtang, recordLinkedUtangPayment } from '@/db/utangRepo';
 import { buckets as bucketsTable, categories as categoriesTable } from '@/db/schema';
 import { eq } from 'drizzle-orm';
@@ -25,6 +26,7 @@ export default function AddTransactionScreen() {
   );
   const categories = useAppQuery((db) => db.select().from(categoriesTable));
   const openUtang = useAppQuery((db) => listOpenUtang(db));
+  const openInstallments = useAppQuery((db) => listOpenInstallments(db));
 
   const save = async (values: TransactionFormValues) => {
     const input = {
@@ -35,6 +37,7 @@ export default function AddTransactionScreen() {
       note: values.note,
       receiptPhotoUri: values.receiptPhotoUri,
       utangId: values.utangId,
+      installmentId: values.installmentId,
     };
     if (values.kind !== 'transfer' && values.utangId !== undefined) {
       // Validates direction + remaining, records the payment; the transaction
@@ -44,6 +47,13 @@ export default function AddTransactionScreen() {
         amount: values.amount,
         date: values.date,
         bucketId: values.bucketId,
+      });
+    }
+    if (values.kind === 'expense' && values.installmentId !== undefined) {
+      // Moves the plan's paid amount forward; the expense below is the money log.
+      await recordLinkedInstallmentPayment(db, {
+        installmentId: values.installmentId,
+        amount: values.amount,
       });
     }
     if (values.kind === 'expense') await addExpense(db, input);
@@ -62,6 +72,7 @@ export default function AddTransactionScreen() {
         buckets={buckets}
         categories={categories}
         openUtang={openUtang}
+        openInstallments={openInstallments}
         onSubmit={save}
         onScanReceipt={() => router.push('/scan-receipt')}
         initialAmountText={params.amountText}

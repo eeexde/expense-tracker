@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { formStyles } from '@/components/form';
+import { Icon } from '@/components/Icon';
 import { useDb } from '@/db/DbProvider';
 import { useAppQuery } from '@/db/hooks';
 import { allBucketBalances, archiveBucket, bucketHasReferences, deleteBucket } from '@/db/repo';
@@ -64,9 +65,11 @@ export default function ManageBucketsScreen() {
               accessibilityRole="button"
               accessibilityLabel={`Edit ${bucket.name}`}
             >
-              <Text style={styles.cardTitle}>
-                {bucket.icon} {bucket.name}
-              </Text>
+              <View style={styles.titleRow}>
+                <Icon name={bucket.icon} size={16} color={colors.gold} />
+                <Text style={styles.cardTitle}>{bucket.name}</Text>
+                {bucket.type === 'credit' && <Text style={styles.creditTag}>CREDIT</Text>}
+              </View>
               <Text style={styles.cardSub}>
                 {balance < 0 ? `−${formatPeso(-balance)}` : formatPeso(balance)}
               </Text>
@@ -77,7 +80,7 @@ export default function ManageBucketsScreen() {
               accessibilityRole="button"
               accessibilityLabel={`Remove ${bucket.name}`}
             >
-              <Text style={styles.removeText}>🗑</Text>
+              <Icon name="trash" size={18} color={colors.inkDim} />
             </Pressable>
           </View>
         ))}
@@ -112,9 +115,20 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   cardMain: { flex: 1, gap: 2 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   cardTitle: { fontFamily: fonts.bodyMedium, fontSize: 15, color: colors.ink },
+  creditTag: {
+    fontFamily: fonts.bodyBold,
+    fontSize: 8,
+    letterSpacing: 1,
+    color: colors.inkFaint,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.xs + 1,
+    paddingVertical: 1,
+  },
   cardSub: { fontFamily: fonts.display, fontSize: 14, color: colors.inkDim },
-  removeText: { fontSize: 18 },
   empty: { fontFamily: fonts.body, fontSize: 14, color: colors.inkFaint, paddingVertical: spacing.sm },
   hint: { fontFamily: fonts.body, fontSize: 11, color: colors.inkFaint, marginTop: spacing.xs },
 });
