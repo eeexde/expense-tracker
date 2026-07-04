@@ -1,7 +1,9 @@
 import { useRouter } from 'expo-router';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { eq } from 'drizzle-orm';
+import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { useDb } from '@/db/DbProvider';
 import { useAppQuery } from '@/db/hooks';
 import {
@@ -46,17 +48,18 @@ export default function RecurringScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.headerRow}>
           <Text style={styles.sectionTitle}>Recurring expenses</Text>
-          <Pressable onPress={() => router.push('/add-recurring')} hitSlop={8}>
+          <AnimatedPressable onPress={() => router.push('/add-recurring')} hitSlop={8}>
             <Text style={styles.addLink}>＋ Add</Text>
-          </Pressable>
+          </AnimatedPressable>
         </View>
         {rules !== undefined && rules.length === 0 && (
           <Text style={styles.empty}>None yet. Add electricity, internet, rent…</Text>
         )}
-        {(rules ?? []).map((rule) => (
-          <Pressable
+        {(rules ?? []).map((rule, index) => (
+          <AnimatedPressable
             key={rule.id}
             style={styles.card}
+            entering={FadeInDown.delay(index * 40).springify().damping(18)}
             onPress={() => toggleActive(rule)}
             onLongPress={() => confirmDeleteRule(rule)}
           >
@@ -72,33 +75,36 @@ export default function RecurringScreen() {
             <Text style={[styles.cardAmount, !rule.active && styles.inactive]}>
               {formatPeso(rule.amount)}
             </Text>
-          </Pressable>
+          </AnimatedPressable>
         ))}
         <Text style={styles.hint}>Tap to pause, long-press to delete.</Text>
 
         <View style={[styles.headerRow, { marginTop: spacing.lg }]}>
           <Text style={styles.sectionTitle}>Installments</Text>
-          <Pressable onPress={() => router.push('/add-installment')} hitSlop={8}>
+          <AnimatedPressable onPress={() => router.push('/add-installment')} hitSlop={8}>
             <Text style={styles.addLink}>＋ Add</Text>
-          </Pressable>
+          </AnimatedPressable>
         </View>
         {plans !== undefined && plans.length === 0 && (
           <Text style={styles.empty}>No installment plans yet (e.g. Home Credit).</Text>
         )}
-        {(plans ?? []).map((plan) => (
-          <InstallmentCard key={plan.id} plan={plan} />
+        {(plans ?? []).map((plan, index) => (
+          <InstallmentCard key={plan.id} plan={plan} index={index} />
         ))}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-function InstallmentCard({ plan }: { plan: Installment }) {
+function InstallmentCard({ plan, index }: { plan: Installment; index: number }) {
   const monthsLeft = plan.monthsTotal - plan.monthsPaid;
   const remaining = installmentRemaining(plan);
   const done = remaining <= 0;
   return (
-    <View style={styles.card}>
+    <Animated.View
+      entering={FadeInDown.delay(index * 40).springify().damping(18)}
+      style={styles.card}
+    >
       <View style={styles.cardMain}>
         <Text style={styles.cardTitle}>{plan.itemName}</Text>
         <Text style={styles.cardSub}>
@@ -110,7 +116,7 @@ function InstallmentCard({ plan }: { plan: Installment }) {
       <Text style={[styles.cardAmount, done && styles.done]}>
         {done ? formatPeso(plan.totalAmount) : formatPeso(remaining)}
       </Text>
-    </View>
+    </Animated.View>
   );
 }
 

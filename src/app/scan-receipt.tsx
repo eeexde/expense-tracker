@@ -1,8 +1,9 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { recognizeReceiptText, saveReceiptPhoto } from '@/lib/ocr';
 import { parseReceipt } from '@/lib/receiptParser';
 import { colors, fonts, radii, spacing } from '@/theme';
@@ -50,12 +51,12 @@ export default function ScanReceiptScreen() {
         <Text style={styles.permissionText}>
           Camera access is needed to scan receipts.
         </Text>
-        <Pressable style={styles.primaryButton} onPress={requestPermission}>
+        <AnimatedPressable style={styles.primaryButton} onPress={requestPermission}>
           <Text style={styles.primaryButtonText}>Allow camera</Text>
-        </Pressable>
-        <Pressable onPress={() => router.back()}>
+        </AnimatedPressable>
+        <AnimatedPressable onPress={() => router.back()}>
           <Text style={styles.cancelText}>Go back</Text>
-        </Pressable>
+        </AnimatedPressable>
       </SafeAreaView>
     );
   }
@@ -64,12 +65,13 @@ export default function ScanReceiptScreen() {
     <View style={styles.screen}>
       <CameraView ref={cameraRef} style={styles.camera} facing="back" />
       <SafeAreaView style={styles.overlay} edges={['bottom', 'top']} pointerEvents="box-none">
-        <Pressable style={styles.close} onPress={() => router.back()} accessibilityLabel="Close">
+        <AnimatedPressable style={styles.close} onPress={() => router.back()} accessibilityLabel="Close">
           <Text style={styles.closeText}>✕</Text>
-        </Pressable>
+        </AnimatedPressable>
         <View style={styles.bottom}>
           {error && <Text style={styles.errorText}>{error}</Text>}
-          <Pressable
+          <AnimatedPressable
+            scaleTo={0.9}
             style={[styles.shutter, busy && styles.shutterBusy]}
             onPress={capture}
             disabled={busy}
@@ -77,7 +79,7 @@ export default function ScanReceiptScreen() {
             accessibilityLabel="Capture receipt"
           >
             {busy ? <ActivityIndicator color={colors.bg} /> : <View style={styles.shutterInner} />}
-          </Pressable>
+          </AnimatedPressable>
           <Text style={styles.hint}>Capture the whole receipt</Text>
         </View>
       </SafeAreaView>

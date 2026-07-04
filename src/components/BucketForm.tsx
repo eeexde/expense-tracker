@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ScrollView, Text, TextInput, View } from 'react-native';
+import { AnimatedPressable } from './AnimatedPressable';
 import { formStyles, Segmented, SubmitButton } from './form';
 import { BUCKET_ICON_OPTIONS, Icon } from './Icon';
 import { parsePesoInput } from '@/lib/money';
@@ -90,7 +91,7 @@ export function BucketForm({ initial, submitLabel = 'Save', onSubmit }: Props) {
         {BUCKET_ICON_OPTIONS.map((key) => {
           const selected = key === icon;
           return (
-            <Pressable
+            <AnimatedPressable
               key={key}
               onPress={() => setIcon(key)}
               accessibilityRole="button"
@@ -109,7 +110,7 @@ export function BucketForm({ initial, submitLabel = 'Save', onSubmit }: Props) {
               }}
             >
               <Icon name={key} size={20} color={selected ? colors.gold : colors.inkDim} />
-            </Pressable>
+            </AnimatedPressable>
           );
         })}
       </View>

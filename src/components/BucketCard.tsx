@@ -1,6 +1,8 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { FadeInDown } from 'react-native-reanimated';
 import { formatPeso } from '@/lib/money';
 import { Bucket } from '@/db/schema';
+import { AnimatedPressable } from './AnimatedPressable';
 import { Icon } from './Icon';
 import { colors, fonts, radii, spacing } from '@/theme';
 
@@ -8,13 +10,15 @@ interface Props {
   bucket: Bucket;
   balance: number;
   onPress?: () => void;
+  index?: number;
 }
 
-export function BucketCard({ bucket, balance, onPress }: Props) {
+export function BucketCard({ bucket, balance, onPress, index = 0 }: Props) {
   const credit = bucket.type === 'credit';
   return (
-    <Pressable
-      style={({ pressed }) => [styles.card, pressed && styles.pressed]}
+    <AnimatedPressable
+      style={styles.card}
+      entering={FadeInDown.delay(index * 40).springify().damping(16)}
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`${bucket.name}, ${formatPeso(balance)}`}
@@ -29,7 +33,7 @@ export function BucketCard({ bucket, balance, onPress }: Props) {
       <Text style={[styles.balance, balance < 0 && styles.negative]}>
         {balance < 0 ? `−${formatPeso(-balance)}` : formatPeso(balance)}
       </Text>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -43,7 +47,6 @@ const styles = StyleSheet.create({
     width: 132,
     gap: spacing.xs,
   },
-  pressed: { opacity: 0.75 },
   topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   creditTag: {
     fontFamily: fonts.bodyBold,

@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Image } from 'expo-image';
+import { useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import { Bucket, Category } from '@/db/schema';
 import { InstallmentWithRemaining } from '@/db/installmentRepo';
 import { UtangWithRemaining } from '@/db/utangRepo';
 import { formatPeso, parsePesoInput } from '@/lib/money';
 import { AmountInput } from './AmountInput';
+import { AnimatedPressable } from './AnimatedPressable';
 import { ChipRow } from './form';
 import { Icon } from './Icon';
 import { colors, fonts, radii, spacing, todayLocal } from '@/theme';
@@ -132,23 +134,21 @@ export function TransactionForm({
     >
       <View style={styles.segmented}>
         {KINDS.map(({ kind: k, label }) => (
-          <Pressable
+          <KindSegment
             key={k}
-            style={[styles.segment, kind === k && styles.segmentActive]}
+            selected={kind === k}
             onPress={() => {
               setKind(k);
               setCategoryId(undefined);
               setUtangId(undefined);
               setInstallmentId(undefined);
             }}
-            accessibilityRole="button"
-            accessibilityState={{ selected: kind === k }}
             testID={`kind-${k}`}
           >
             <Text style={[styles.segmentText, kind === k && styles.segmentTextActive]}>
               {label}
             </Text>
-          </Pressable>
+          </KindSegment>
         ))}
       </View>
 
@@ -258,10 +258,10 @@ export function TransactionForm({
       />
 
       {kind === 'expense' && onScanReceipt && (
-        <Pressable style={styles.scanButton} onPress={onScanReceipt} accessibilityRole="button">
+        <AnimatedPressable style={styles.scanButton} onPress={onScanReceipt} accessibilityRole="button">
           <Icon name="camera" size={16} color={colors.inkDim} />
           <Text style={styles.scanText}>Scan receipt</Text>
-        </Pressable>
+        </AnimatedPressable>
       )}
       {receiptPhotoUri && (
         <View style={styles.receiptRow}>
@@ -270,7 +270,8 @@ export function TransactionForm({
         </View>
       )}
 
-      <Pressable
+      <AnimatedPressable
+        scaleTo={0.97}
         style={[styles.submit, !valid && styles.submitDisabled]}
         onPress={submit}
         disabled={!valid}
@@ -278,8 +279,35 @@ export function TransactionForm({
         testID="submit"
       >
         <Text style={styles.submitText}>Save</Text>
-      </Pressable>
+      </AnimatedPressable>
     </ScrollView>
+  );
+}
+
+function KindSegment({
+  selected,
+  onPress,
+  testID,
+  children,
+}: {
+  selected: boolean;
+  onPress: () => void;
+  testID?: string;
+  children: React.ReactNode;
+}) {
+  const activeStyle = useAnimatedStyle(() => ({
+    backgroundColor: withTiming(selected ? colors.surfaceRaised : 'transparent', { duration: 150 }),
+  }));
+  return (
+    <AnimatedPressable
+      style={[styles.segment, activeStyle]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      testID={testID}
+    >
+      {children}
+    </AnimatedPressable>
   );
 }
 
@@ -299,7 +327,6 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     alignItems: 'center',
   },
-  segmentActive: { backgroundColor: colors.surfaceRaised },
   segmentText: { fontFamily: fonts.bodyMedium, fontSize: 14, color: colors.inkFaint },
   segmentTextActive: { color: colors.gold },
   label: {

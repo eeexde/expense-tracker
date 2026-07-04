@@ -1,6 +1,8 @@
 import { useRouter } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
+import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { useAppQuery } from '@/db/hooks';
 import { listUtang, utangTotals, UtangWithRemaining } from '@/db/utangRepo';
 import { formatPeso } from '@/lib/money';
@@ -17,12 +19,12 @@ export default function UtangScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.headerRow}>
           <Text style={styles.pageTitle}>Utang</Text>
-          <Pressable onPress={() => router.push('/add-utang')} hitSlop={8}>
+          <AnimatedPressable onPress={() => router.push('/add-utang')} hitSlop={8}>
             <Text style={styles.addLink}>＋ Add</Text>
-          </Pressable>
+          </AnimatedPressable>
         </View>
 
-        <View style={styles.totalsRow}>
+        <Animated.View entering={FadeIn.duration(250)} style={styles.totalsRow}>
           <View style={styles.totalCard}>
             <Text style={styles.totalLabel}>I owe</Text>
             <Text style={[styles.totalAmount, { color: colors.expense }]}>
@@ -35,7 +37,7 @@ export default function UtangScreen() {
               {totals === undefined ? '…' : formatPeso(totals.owedToMe)}
             </Text>
           </View>
-        </View>
+        </Animated.View>
 
         <UtangSection title="Debts I owe" list={iOwe} emptyText="No debts. Nice!" />
         <UtangSection
@@ -64,10 +66,11 @@ function UtangSection({
     <>
       <Text style={styles.sectionTitle}>{title}</Text>
       {list !== undefined && open.length === 0 && <Text style={styles.empty}>{emptyText}</Text>}
-      {open.map((u) => (
-        <Pressable
+      {open.map((u, index) => (
+        <AnimatedPressable
           key={u.id}
           style={styles.card}
+          entering={FadeInDown.delay(index * 40).springify().damping(18)}
           onPress={() => router.push({ pathname: '/pay-utang', params: { id: String(u.id) } })}
         >
           <View style={styles.cardMain}>
@@ -84,15 +87,19 @@ function UtangSection({
           >
             {formatPeso(u.remaining)}
           </Text>
-        </Pressable>
+        </AnimatedPressable>
       ))}
-      {settled.map((u) => (
-        <View key={u.id} style={[styles.card, styles.settled]}>
+      {settled.map((u, index) => (
+        <Animated.View
+          key={u.id}
+          entering={FadeInDown.delay((open.length + index) * 40).springify().damping(18)}
+          style={[styles.card, styles.settled]}
+        >
           <View style={styles.cardMain}>
             <Text style={[styles.cardTitle, { color: colors.inkFaint }]}>{u.personName}</Text>
             <Text style={styles.cardSub}>Settled ✓ {formatPeso(u.originalAmount)}</Text>
           </View>
-        </View>
+        </Animated.View>
       ))}
     </>
   );

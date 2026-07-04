@@ -1,6 +1,8 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { FadeInDown } from 'react-native-reanimated';
 import { formatPeso } from '@/lib/money';
 import { Bucket, Category, Transaction } from '@/db/schema';
+import { AnimatedPressable } from './AnimatedPressable';
 import { Icon } from './Icon';
 import { colors, fonts, radii, spacing } from '@/theme';
 
@@ -10,6 +12,7 @@ interface Props {
   bucket?: Bucket;
   toBucket?: Bucket;
   onPress?: () => void;
+  index?: number;
 }
 
 const SIGN = { income: '+', expense: '−', transfer: '' } as const;
@@ -19,7 +22,7 @@ const AMOUNT_COLOR = {
   transfer: colors.transfer,
 } as const;
 
-export function TransactionRow({ txn, category, bucket, toBucket, onPress }: Props) {
+export function TransactionRow({ txn, category, bucket, toBucket, onPress, index = 0 }: Props) {
   const title =
     txn.note ||
     category?.name ||
@@ -30,8 +33,9 @@ export function TransactionRow({ txn, category, bucket, toBucket, onPress }: Pro
       : bucket?.name ?? '';
 
   return (
-    <Pressable
-      style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+    <AnimatedPressable
+      style={styles.row}
+      entering={FadeInDown.delay(Math.min(index, 8) * 35).springify().damping(18)}
       onPress={onPress}
       accessibilityRole="button"
     >
@@ -54,7 +58,7 @@ export function TransactionRow({ txn, category, bucket, toBucket, onPress }: Pro
         {SIGN[txn.type]}
         {formatPeso(txn.amount)}
       </Text>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -65,7 +69,6 @@ const styles = StyleSheet.create({
     gap: spacing.sm + spacing.xs,
     paddingVertical: spacing.sm + spacing.xs,
   },
-  pressed: { opacity: 0.75 },
   iconWrap: {
     width: 40,
     height: 40,

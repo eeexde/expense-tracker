@@ -1,6 +1,8 @@
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAnimatedStyle, withTiming } from 'react-native-reanimated';
+import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { Icon } from '@/components/Icon';
 import { TransactionRow } from '@/components/TransactionRow';
 import { useDb } from '@/db/DbProvider';
@@ -53,13 +55,13 @@ export default function TransactionsScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <View style={styles.monthNav}>
-        <Pressable onPress={() => setMonth(shiftMonth(month, -1))} hitSlop={12}>
+        <AnimatedPressable scaleTo={0.8} onPress={() => setMonth(shiftMonth(month, -1))} hitSlop={12}>
           <Text style={styles.monthArrow}>‹</Text>
-        </Pressable>
+        </AnimatedPressable>
         <Text style={styles.monthLabel}>{monthLabel(month)}</Text>
-        <Pressable onPress={() => setMonth(shiftMonth(month, 1))} hitSlop={12}>
+        <AnimatedPressable scaleTo={0.8} onPress={() => setMonth(shiftMonth(month, 1))} hitSlop={12}>
           <Text style={styles.monthArrow}>›</Text>
-        </Pressable>
+        </AnimatedPressable>
       </View>
 
       <FilterRow
@@ -90,7 +92,7 @@ export default function TransactionsScreen() {
         {txns !== undefined && txns.length === 0 && (
           <Text style={styles.empty}>No matching transactions this month.</Text>
         )}
-        {(txns ?? []).map((txn) => (
+        {(txns ?? []).map((txn, index) => (
           <TransactionRow
             key={txn.id}
             txn={txn}
@@ -98,6 +100,7 @@ export default function TransactionsScreen() {
             bucket={bucketById.get(txn.bucketId)}
             toBucket={txn.toBucketId != null ? bucketById.get(txn.toBucketId) : undefined}
             onPress={() => confirmDelete(txn)}
+            index={index}
           />
         ))}
       </ScrollView>
@@ -133,22 +136,48 @@ function FilterRow({
       {chips.map((chip) => {
         const selected = chip.key === selectedKey;
         return (
-          <Pressable
+          <FilterChip
             key={chip.key ?? 'all'}
-            style={[styles.chip, selected && styles.chipActive]}
+            selected={selected}
             onPress={() => onSelect(chip.key)}
-            accessibilityRole="button"
-            accessibilityState={{ selected }}
             testID={`${testIDPrefix}-${chip.key ?? 'all'}`}
           >
             {chip.icon && (
               <Icon name={chip.icon} size={13} color={selected ? colors.gold : colors.inkFaint} />
             )}
             <Text style={[styles.chipText, selected && styles.chipTextActive]}>{chip.label}</Text>
-          </Pressable>
+          </FilterChip>
         );
       })}
     </ScrollView>
+  );
+}
+
+function FilterChip({
+  selected,
+  onPress,
+  testID,
+  children,
+}: {
+  selected: boolean;
+  onPress: () => void;
+  testID?: string;
+  children: React.ReactNode;
+}) {
+  const activeStyle = useAnimatedStyle(() => ({
+    backgroundColor: withTiming(selected ? colors.surfaceRaised : colors.surface, { duration: 150 }),
+    borderColor: withTiming(selected ? colors.gold : colors.border, { duration: 150 }),
+  }));
+  return (
+    <AnimatedPressable
+      style={[styles.chip, activeStyle]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      testID={testID}
+    >
+      {children}
+    </AnimatedPressable>
   );
 }
 
@@ -167,7 +196,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs + 2,
     paddingHorizontal: spacing.sm + spacing.xs,
   },
-  chipActive: { backgroundColor: colors.surfaceRaised, borderColor: colors.gold },
   chipText: { fontFamily: fonts.bodyMedium, fontSize: 12, color: colors.inkDim },
   chipTextActive: { color: colors.ink },
   monthNav: {

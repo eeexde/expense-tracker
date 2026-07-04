@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BarChart, PieChart } from 'react-native-gifted-charts';
+import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { Icon } from '@/components/Icon';
 import { useAppQuery } from '@/db/hooks';
 import { allBucketBalances, totalMoney } from '@/db/repo';
@@ -74,13 +75,13 @@ export default function StatsScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <View style={styles.monthNav}>
-        <Pressable onPress={() => setMonth(shiftMonth(month, -1))} hitSlop={12}>
+        <AnimatedPressable scaleTo={0.8} onPress={() => setMonth(shiftMonth(month, -1))} hitSlop={12}>
           <Text style={styles.monthArrow}>‹</Text>
-        </Pressable>
+        </AnimatedPressable>
         <Text style={styles.monthLabel}>{monthLabel(month)}</Text>
-        <Pressable onPress={() => setMonth(shiftMonth(month, 1))} hitSlop={12}>
+        <AnimatedPressable scaleTo={0.8} onPress={() => setMonth(shiftMonth(month, 1))} hitSlop={12}>
           <Text style={styles.monthArrow}>›</Text>
-        </Pressable>
+        </AnimatedPressable>
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>

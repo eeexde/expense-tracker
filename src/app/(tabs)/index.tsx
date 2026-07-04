@@ -1,6 +1,8 @@
 import { useRouter } from 'expo-router';
-import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { FlatList, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, { FadeIn } from 'react-native-reanimated';
+import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { BucketCard } from '@/components/BucketCard';
 import { TransactionRow } from '@/components/TransactionRow';
 import { useAppQuery } from '@/db/hooks';
@@ -25,27 +27,29 @@ export default function HomeScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.brand}>Kuripot</Text>
 
-        <View style={styles.hero}>
+        <Animated.View entering={FadeIn.duration(250)} style={styles.hero}>
           <Text style={styles.heroLabel}>Total money</Text>
           <Text style={styles.heroAmount}>{total === undefined ? '…' : formatPeso(total)}</Text>
-        </View>
+        </Animated.View>
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Buckets</Text>
-          <Pressable
+          <AnimatedPressable
             onPress={() => router.push('/manage-buckets')}
             hitSlop={8}
             accessibilityRole="button"
             accessibilityLabel="Manage buckets"
           >
             <Text style={styles.manageLink}>✎ Manage</Text>
-          </Pressable>
+          </AnimatedPressable>
         </View>
         <FlatList
           horizontal
           data={balances ?? []}
           keyExtractor={(item) => String(item.bucket.id)}
-          renderItem={({ item }) => <BucketCard bucket={item.bucket} balance={item.balance} />}
+          renderItem={({ item, index }) => (
+            <BucketCard bucket={item.bucket} balance={item.balance} index={index} />
+          )}
           contentContainerStyle={styles.bucketRow}
           showsHorizontalScrollIndicator={false}
           scrollEnabled
@@ -55,25 +59,27 @@ export default function HomeScreen() {
         {recent !== undefined && recent.length === 0 && (
           <Text style={styles.empty}>No transactions yet. Tap + to get started.</Text>
         )}
-        {(recent ?? []).map((txn) => (
+        {(recent ?? []).map((txn, index) => (
           <TransactionRow
             key={txn.id}
             txn={txn}
             category={txn.categoryId != null ? categoryById.get(txn.categoryId) : undefined}
             bucket={bucketById.get(txn.bucketId)}
             toBucket={txn.toBucketId != null ? bucketById.get(txn.toBucketId) : undefined}
+            index={index}
           />
         ))}
       </ScrollView>
 
-      <Pressable
+      <AnimatedPressable
+        scaleTo={0.88}
         style={styles.fab}
         onPress={() => router.push('/add-transaction')}
         accessibilityRole="button"
         accessibilityLabel="Add transaction"
       >
         <Text style={styles.fabText}>＋</Text>
-      </Pressable>
+      </AnimatedPressable>
     </SafeAreaView>
   );
 }

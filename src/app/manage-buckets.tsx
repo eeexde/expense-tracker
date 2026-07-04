@@ -1,6 +1,8 @@
 import { useRouter } from 'expo-router';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, { FadeInDown } from 'react-native-reanimated';
+import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { formStyles } from '@/components/form';
 import { Icon } from '@/components/Icon';
 import { useDb } from '@/db/DbProvider';
@@ -52,14 +54,18 @@ export default function ManageBucketsScreen() {
     <SafeAreaView style={formStyles.screen} edges={['top', 'bottom']}>
       <View style={styles.headerRow}>
         <Text style={formStyles.title}>Manage buckets</Text>
-        <Pressable onPress={() => router.push('/add-bucket')} hitSlop={8}>
+        <AnimatedPressable onPress={() => router.push('/add-bucket')} hitSlop={8}>
           <Text style={styles.addLink}>＋ Add</Text>
-        </Pressable>
+        </AnimatedPressable>
       </View>
       <ScrollView contentContainerStyle={styles.content}>
-        {(balances ?? []).map(({ bucket, balance }) => (
-          <View key={bucket.id} style={styles.card}>
-            <Pressable
+        {(balances ?? []).map(({ bucket, balance }, index) => (
+          <Animated.View
+            key={bucket.id}
+            entering={FadeInDown.delay(index * 40).springify().damping(18)}
+            style={styles.card}
+          >
+            <AnimatedPressable
               style={styles.cardMain}
               onPress={() => router.push({ pathname: '/edit-bucket', params: { id: String(bucket.id) } })}
               accessibilityRole="button"
@@ -73,16 +79,16 @@ export default function ManageBucketsScreen() {
               <Text style={styles.cardSub}>
                 {balance < 0 ? `−${formatPeso(-balance)}` : formatPeso(balance)}
               </Text>
-            </Pressable>
-            <Pressable
+            </AnimatedPressable>
+            <AnimatedPressable
               onPress={() => confirmRemove(bucket)}
               hitSlop={8}
               accessibilityRole="button"
               accessibilityLabel={`Remove ${bucket.name}`}
             >
               <Icon name="trash" size={18} color={colors.inkDim} />
-            </Pressable>
-          </View>
+            </AnimatedPressable>
+          </Animated.View>
         ))}
         {balances !== undefined && balances.length === 0 && (
           <Text style={styles.empty}>No buckets yet. Add one to get started.</Text>
