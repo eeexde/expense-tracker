@@ -7,9 +7,11 @@ import {
   listOpenUtang,
   listUtang,
   recordLinkedUtangPayment,
+  updateUtang,
   utangRemaining,
   utangTotals,
 } from './utangRepo';
+import { utang as utangTable } from './schema';
 
 describe('utangRepo', () => {
   let db: TestDb;
@@ -65,6 +67,41 @@ describe('utangRepo', () => {
     await expect(
       addUtangPayment(db, { utangId: u.id, amount: 20000, date: '2026-07-01', bucketId }),
     ).rejects.toThrow();
+  });
+
+  describe('updateUtang', () => {
+    it('updates name, note and amount', async () => {
+      const u = await addUtang(db, { personName: 'Juan', direction: 'iOwe', originalAmount: 50000 });
+      await updateUtang(db, u.id, { personName: 'Juan Dela Cruz', note: 'lunch', originalAmount: 60000 });
+      const [row] = await db.select().from(utangTable);
+      expect(row.personName).toBe('Juan Dela Cruz');
+      expect(row.note).toBe('lunch');
+      expect(row.originalAmount).toBe(60000);
+    });
+
+    it('rejects shrinking below what was already paid', async () => {
+      const u = await addUtang(db, { personName: 'Juan', direction: 'iOwe', originalAmount: 50000 });
+      await addUtangPayment(db, { utangId: u.id, amount: 30000, date: '2026-07-01', bucketId });
+      await expect(updateUtang(db, u.id, { originalAmount: 20000 })).rejects.toThrow(/already paid/i);
+      await updateUtang(db, u.id, { originalAmount: 30000 }); // exactly the paid amount settles it
+      expect(await utangRemaining(db, u.id)).toBe(0);
+    });
+
+    it('allows flipping direction only while unpaid', async () => {
+      const u = await addUtang(db, { personName: 'Juan', direction: 'iOwe', originalAmount: 50000 });
+      await updateUtang(db, u.id, { direction: 'owedToMe' });
+      const [row] = await db.select().from(utangTable);
+      expect(row.direction).toBe('owedToMe');
+      await addUtangPayment(db, { utangId: u.id, amount: 10000, date: '2026-07-01', bucketId });
+      await expect(updateUtang(db, u.id, { direction: 'iOwe' })).rejects.toThrow(/payment/i);
+    });
+
+    it('rejects invalid values', async () => {
+      const u = await addUtang(db, { personName: 'Juan', direction: 'iOwe', originalAmount: 50000 });
+      await expect(updateUtang(db, u.id, { personName: ' ' })).rejects.toThrow();
+      await expect(updateUtang(db, u.id, { originalAmount: 0 })).rejects.toThrow();
+      await expect(updateUtang(db, 999, { personName: 'X' })).rejects.toThrow(/no utang/i);
+    });
   });
 
   describe('linked payments (transaction form path)', () => {

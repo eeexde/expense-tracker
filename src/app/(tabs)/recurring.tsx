@@ -1,14 +1,11 @@
 import { useRouter } from 'expo-router';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { eq } from 'drizzle-orm';
-import { useDb } from '@/db/DbProvider';
 import { useAppQuery } from '@/db/hooks';
 import {
   installments as installmentsTable,
   Installment,
   recurring as recurringTable,
-  Recurring,
 } from '@/db/schema';
 import { installmentRemaining } from '@/db/installmentRepo';
 import { formatPeso } from '@/lib/money';
@@ -18,28 +15,8 @@ const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frida
 
 export default function RecurringScreen() {
   const router = useRouter();
-  const { db, refresh } = useDb();
   const rules = useAppQuery((db) => db.select().from(recurringTable));
   const plans = useAppQuery((db) => db.select().from(installmentsTable));
-
-  const toggleActive = async (rule: Recurring) => {
-    await db.update(recurringTable).set({ active: !rule.active }).where(eq(recurringTable.id, rule.id));
-    refresh();
-  };
-
-  const confirmDeleteRule = (rule: Recurring) => {
-    Alert.alert('Delete?', rule.name, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          await db.delete(recurringTable).where(eq(recurringTable.id, rule.id));
-          refresh();
-        },
-      },
-    ]);
-  };
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
@@ -57,8 +34,7 @@ export default function RecurringScreen() {
           <Pressable
             key={rule.id}
             style={styles.card}
-            onPress={() => toggleActive(rule)}
-            onLongPress={() => confirmDeleteRule(rule)}
+            onPress={() => router.push({ pathname: '/edit-recurring', params: { id: String(rule.id) } })}
           >
             <View style={styles.cardMain}>
               <Text style={[styles.cardTitle, !rule.active && styles.inactive]}>{rule.name}</Text>
@@ -74,7 +50,7 @@ export default function RecurringScreen() {
             </Text>
           </Pressable>
         ))}
-        <Text style={styles.hint}>Tap to pause, long-press to delete.</Text>
+        <Text style={styles.hint}>Tap a rule to edit, pause, or delete it.</Text>
 
         <View style={[styles.headerRow, { marginTop: spacing.lg }]}>
           <Text style={styles.sectionTitle}>Installments</Text>
@@ -94,11 +70,15 @@ export default function RecurringScreen() {
 }
 
 function InstallmentCard({ plan }: { plan: Installment }) {
+  const router = useRouter();
   const monthsLeft = plan.monthsTotal - plan.monthsPaid;
   const remaining = installmentRemaining(plan);
   const done = remaining <= 0;
   return (
-    <View style={styles.card}>
+    <Pressable
+      style={styles.card}
+      onPress={() => router.push({ pathname: '/edit-installment', params: { id: String(plan.id) } })}
+    >
       <View style={styles.cardMain}>
         <Text style={styles.cardTitle}>{plan.itemName}</Text>
         <Text style={styles.cardSub}>
@@ -110,7 +90,7 @@ function InstallmentCard({ plan }: { plan: Installment }) {
       <Text style={[styles.cardAmount, done && styles.done]}>
         {done ? formatPeso(plan.totalAmount) : formatPeso(remaining)}
       </Text>
-    </View>
+    </Pressable>
   );
 }
 

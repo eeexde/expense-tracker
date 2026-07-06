@@ -1,4 +1,4 @@
-import { formatPeso, parsePesoInput, sum } from './money';
+import { centavosToInput, formatPeso, parsePesoInput, sum } from './money';
 
 describe('formatPeso', () => {
   it('formats zero', () => {
@@ -45,6 +45,23 @@ describe('parsePesoInput', () => {
     expect(parsePesoInput('0')).toBeNull();
     expect(parsePesoInput('-5')).toBeNull();
     expect(parsePesoInput('1.234')).toBeNull();
+  });
+});
+
+describe('centavosToInput', () => {
+  it('drops the decimals for whole pesos', () => {
+    expect(centavosToInput(25000)).toBe('250');
+  });
+
+  it('keeps two decimals when there are centavos', () => {
+    expect(centavosToInput(123450)).toBe('1234.50');
+    expect(centavosToInput(5)).toBe('0.05');
+  });
+
+  it('round-trips through parsePesoInput', () => {
+    for (const c of [1, 5, 99, 100, 1050, 123450, 9999]) {
+      expect(parsePesoInput(centavosToInput(c))).toBe(c);
+    }
   });
 });
 

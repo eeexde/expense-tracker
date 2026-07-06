@@ -45,7 +45,8 @@
           "cameraPermission": "Kuripot uses the camera to capture receipts for expense logging."
         }
       ],
-      "expo-notifications"
+      "expo-notifications",
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true,

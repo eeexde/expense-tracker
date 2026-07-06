@@ -10,6 +10,7 @@ interface Props {
   bucket?: Bucket;
   toBucket?: Bucket;
   onPress?: () => void;
+  onLongPress?: () => void;
 }
 
 const SIGN = { income: '+', expense: '−', transfer: '' } as const;
@@ -19,7 +20,7 @@ const AMOUNT_COLOR = {
   transfer: colors.transfer,
 } as const;
 
-export function TransactionRow({ txn, category, bucket, toBucket, onPress }: Props) {
+export function TransactionRow({ txn, category, bucket, toBucket, onPress, onLongPress }: Props) {
   const title =
     txn.note ||
     category?.name ||
@@ -33,6 +34,7 @@ export function TransactionRow({ txn, category, bucket, toBucket, onPress }: Pro
     <Pressable
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
       onPress={onPress}
+      onLongPress={onLongPress}
       accessibilityRole="button"
     >
       <View style={styles.iconWrap}>

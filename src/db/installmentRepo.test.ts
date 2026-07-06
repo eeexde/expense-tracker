@@ -4,6 +4,7 @@ import {
   installmentRemaining,
   listOpenInstallments,
   recordLinkedInstallmentPayment,
+  updateInstallment,
 } from './installmentRepo';
 import { runCatchUp } from '../lib/recurringEngine';
 
@@ -66,6 +67,43 @@ describe('installmentRepo', () => {
     const [plan] = await db.select().from(installments);
     expect(plan.amountPaid).toBe(400000);
     expect(plan.monthsPaid).toBe(4);
+  });
+
+  describe('updateInstallment', () => {
+    it('updates fields and recomputes the total', async () => {
+      await updateInstallment(db, planId, { itemName: 'Laptop', monthlyDue: 150000, monthsTotal: 4, dayDue: 5 });
+      const [plan] = await db.select().from(installments);
+      expect(plan.itemName).toBe('Laptop');
+      expect(plan.monthlyDue).toBe(150000);
+      expect(plan.monthsTotal).toBe(4);
+      expect(plan.totalAmount).toBe(600000);
+      expect(plan.dayDue).toBe(5);
+    });
+
+    it('re-derives monthsPaid from what was already paid', async () => {
+      await recordLinkedInstallmentPayment(db, { installmentId: planId, amount: 300000 });
+      // 300k paid = 3 months at 100k; halving the monthly due makes it 6 months
+      await updateInstallment(db, planId, { monthlyDue: 50000, monthsTotal: 12 });
+      const [plan] = await db.select().from(installments);
+      expect(plan.amountPaid).toBe(300000);
+      expect(plan.monthsPaid).toBe(6);
+      expect(plan.totalAmount).toBe(600000);
+    });
+
+    it('rejects shrinking the plan below what was already paid', async () => {
+      await recordLinkedInstallmentPayment(db, { installmentId: planId, amount: 300000 });
+      await expect(updateInstallment(db, planId, { monthlyDue: 100000, monthsTotal: 2 })).rejects.toThrow(
+        /already paid/i,
+      );
+    });
+
+    it('rejects invalid values', async () => {
+      await expect(updateInstallment(db, planId, { monthlyDue: 0 })).rejects.toThrow();
+      await expect(updateInstallment(db, planId, { monthsTotal: 0 })).rejects.toThrow();
+      await expect(updateInstallment(db, planId, { dayDue: 32 })).rejects.toThrow();
+      await expect(updateInstallment(db, planId, { itemName: '  ' })).rejects.toThrow();
+      await expect(updateInstallment(db, 999, { itemName: 'X' })).rejects.toThrow(/no installment/i);
+    });
   });
 
   it('catch-up clamps the final posting after a partial advance', async () => {

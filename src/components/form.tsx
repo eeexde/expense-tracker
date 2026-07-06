@@ -162,4 +162,11 @@ export const formStyles = StyleSheet.create({
   },
   submitDisabled: { opacity: 0.35 },
   submitText: { fontFamily: fonts.bodyBold, fontSize: 16, color: colors.bg },
+  deleteLink: {
+    fontFamily: fonts.bodyMedium,
+    fontSize: 14,
+    color: colors.danger,
+    textAlign: 'center',
+    padding: spacing.md,
+  },
 });

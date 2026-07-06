@@ -21,6 +21,13 @@ export function parsePesoInput(input: string): number | null {
   return centavos > 0 ? centavos : null;
 }
 
+/** Plain editable text ("1234.56") that round-trips through parsePesoInput. */
+export function centavosToInput(centavos: number): string {
+  const pesos = Math.floor(centavos / 100);
+  const cents = centavos % 100;
+  return cents === 0 ? String(pesos) : `${pesos}.${String(cents).padStart(2, '0')}`;
+}
+
 export function sum(values: number[]): number {
   return values.reduce((acc, v) => acc + v, 0);
 }

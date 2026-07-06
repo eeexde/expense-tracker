@@ -8,10 +8,12 @@ interface Props {
   onChangeAmount: (centavos: number | null) => void;
   initialText?: string;
   autoFocus?: boolean;
+  /** Defaults to true; false renders the amount read-only (linked records). */
+  editable?: boolean;
 }
 
 /** Big peso-first amount entry. Reports parsed centavos, never raw text. */
-export function AmountInput({ onChangeAmount, initialText = '', autoFocus }: Props) {
+export function AmountInput({ onChangeAmount, initialText = '', autoFocus, editable = true }: Props) {
   const [text, setText] = useState(initialText);
   const invalid = text.trim() !== '' && parsePesoInput(text) === null;
 
@@ -25,13 +27,14 @@ export function AmountInput({ onChangeAmount, initialText = '', autoFocus }: Pro
       <View style={styles.row}>
         <Text style={styles.peso}>₱</Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, !editable && styles.inputLocked]}
           value={text}
           onChangeText={handleChange}
           placeholder="0.00"
           placeholderTextColor={colors.inkFaint}
           keyboardType="decimal-pad"
           autoFocus={autoFocus}
+          editable={editable}
           accessibilityLabel="Amount"
           testID="amount-input"
         />
@@ -53,5 +56,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     padding: 0,
   },
+  inputLocked: { color: colors.inkDim },
   error: { fontFamily: fonts.body, fontSize: 13, color: colors.danger },
 });

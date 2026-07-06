@@ -4,7 +4,7 @@ import { Image } from 'expo-image';
 import { Bucket, Category } from '@/db/schema';
 import { InstallmentWithRemaining } from '@/db/installmentRepo';
 import { UtangWithRemaining } from '@/db/utangRepo';
-import { formatPeso, parsePesoInput } from '@/lib/money';
+import { centavosToInput, formatPeso, parsePesoInput } from '@/lib/money';
 import { AmountInput } from './AmountInput';
 import { ChipRow } from './form';
 import { Icon } from './Icon';
@@ -41,6 +41,20 @@ interface Props {
   initialAmountText?: string;
   initialNote?: string;
   receiptPhotoUri?: string;
+  /** Prefill for editing an existing transaction. */
+  initialValues?: {
+    amount?: number;
+    bucketId?: number;
+    toBucketId?: number;
+    categoryId?: number;
+    note?: string;
+    date?: string;
+  };
+  /** Edit mode: the kind of a saved transaction can't change. */
+  lockKind?: boolean;
+  /** Edit mode for linked transactions: amount and bucket stay as recorded. */
+  lockMoney?: boolean;
+  submitLabel?: string;
 }
 
 const KINDS: { kind: TxnKind; label: string }[] = [
@@ -62,16 +76,24 @@ export function TransactionForm({
   initialAmountText,
   initialNote,
   receiptPhotoUri,
+  initialValues,
+  lockKind = false,
+  lockMoney = false,
+  submitLabel = 'Save',
 }: Props) {
+  const amountText =
+    initialValues?.amount !== undefined ? centavosToInput(initialValues.amount) : initialAmountText;
   const [kind, setKind] = useState<TxnKind>(initialKind);
   const [amount, setAmount] = useState<number | null>(
-    initialAmountText ? parsePesoInput(initialAmountText) : null,
+    amountText ? parsePesoInput(amountText) : null,
   );
-  const [bucketId, setBucketId] = useState<number | undefined>(buckets[0]?.id);
-  const [toBucketId, setToBucketId] = useState<number | undefined>(undefined);
-  const [categoryId, setCategoryId] = useState<number | undefined>(undefined);
-  const [note, setNote] = useState(initialNote ?? '');
-  const [date, setDate] = useState(todayLocal());
+  const [bucketId, setBucketId] = useState<number | undefined>(
+    initialValues?.bucketId ?? buckets[0]?.id,
+  );
+  const [toBucketId, setToBucketId] = useState<number | undefined>(initialValues?.toBucketId);
+  const [categoryId, setCategoryId] = useState<number | undefined>(initialValues?.categoryId);
+  const [note, setNote] = useState(initialValues?.note ?? initialNote ?? '');
+  const [date, setDate] = useState(initialValues?.date ?? todayLocal());
   const [utangId, setUtangId] = useState<number | undefined>(undefined);
   const [installmentId, setInstallmentId] = useState<number | undefined>(undefined);
 
@@ -134,15 +156,21 @@ export function TransactionForm({
         {KINDS.map(({ kind: k, label }) => (
           <Pressable
             key={k}
-            style={[styles.segment, kind === k && styles.segmentActive]}
+            style={[
+              styles.segment,
+              kind === k && styles.segmentActive,
+              lockKind && kind !== k && styles.segmentLocked,
+            ]}
             onPress={() => {
+              if (lockKind) return;
               setKind(k);
               setCategoryId(undefined);
               setUtangId(undefined);
               setInstallmentId(undefined);
             }}
+            disabled={lockKind && kind !== k}
             accessibilityRole="button"
-            accessibilityState={{ selected: kind === k }}
+            accessibilityState={{ selected: kind === k, disabled: lockKind && kind !== k }}
             testID={`kind-${k}`}
           >
             <Text style={[styles.segmentText, kind === k && styles.segmentTextActive]}>
@@ -152,15 +180,27 @@ export function TransactionForm({
         ))}
       </View>
 
-      <AmountInput onChangeAmount={setAmount} initialText={initialAmountText} autoFocus />
+      <AmountInput
+        onChangeAmount={setAmount}
+        initialText={amountText}
+        autoFocus={!lockMoney}
+        editable={!lockMoney}
+      />
+      {lockMoney && (
+        <Text style={styles.linkHint}>
+          Linked to a debt/installment payment — amount and bucket stay as recorded.
+        </Text>
+      )}
 
       <Text style={styles.label}>{kind === 'transfer' ? 'From' : 'Bucket'}</Text>
-      <ChipRow
-        items={buckets.map((b) => ({ id: b.id, label: b.name, icon: b.icon }))}
-        selectedId={bucketId}
-        onSelect={setBucketId}
-        testIDPrefix="bucket"
-      />
+      <View pointerEvents={lockMoney ? 'none' : 'auto'} style={lockMoney && styles.locked}>
+        <ChipRow
+          items={buckets.map((b) => ({ id: b.id, label: b.name, icon: b.icon }))}
+          selectedId={bucketId}
+          onSelect={setBucketId}
+          testIDPrefix="bucket"
+        />
+      </View>
 
       {kind === 'transfer' && (
         <>
@@ -277,7 +317,7 @@ export function TransactionForm({
         accessibilityRole="button"
         testID="submit"
       >
-        <Text style={styles.submitText}>Save</Text>
+        <Text style={styles.submitText}>{submitLabel}</Text>
       </Pressable>
     </ScrollView>
   );
@@ -300,8 +340,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   segmentActive: { backgroundColor: colors.surfaceRaised },
+  segmentLocked: { opacity: 0.35 },
   segmentText: { fontFamily: fonts.bodyMedium, fontSize: 14, color: colors.inkFaint },
   segmentTextActive: { color: colors.gold },
+  locked: { opacity: 0.55 },
   label: {
     fontFamily: fonts.bodyBold,
     fontSize: 12,

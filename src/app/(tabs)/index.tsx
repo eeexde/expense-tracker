@@ -23,7 +23,17 @@ export default function HomeScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.brand}>Kuripot</Text>
+        <View style={styles.brandRow}>
+          <Text style={styles.brand}>Kuripot</Text>
+          <Pressable
+            onPress={() => router.push('/settings')}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Settings"
+          >
+            <Text style={styles.settingsLink}>⚙</Text>
+          </Pressable>
+        </View>
 
         <View style={styles.hero}>
           <Text style={styles.heroLabel}>Total money</Text>
@@ -62,6 +72,7 @@ export default function HomeScreen() {
             category={txn.categoryId != null ? categoryById.get(txn.categoryId) : undefined}
             bucket={bucketById.get(txn.bucketId)}
             toBucket={txn.toBucketId != null ? bucketById.get(txn.toBucketId) : undefined}
+            onPress={() => router.push({ pathname: '/edit-transaction', params: { id: String(txn.id) } })}
           />
         ))}
       </ScrollView>
@@ -81,12 +92,18 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   content: { padding: spacing.md, paddingBottom: 96 },
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
   brand: {
     fontFamily: fonts.displayBlack,
     fontSize: 20,
     color: colors.gold,
-    marginBottom: spacing.md,
   },
+  settingsLink: { fontSize: 20, color: colors.inkDim },
   hero: {
     backgroundColor: colors.surface,
     borderColor: colors.border,

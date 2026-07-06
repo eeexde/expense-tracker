@@ -30,6 +30,48 @@ export async function addUtang(db: Db, input: NewUtangInput): Promise<Utang> {
   return row;
 }
 
+export interface UtangPatch {
+  personName?: string;
+  direction?: 'iOwe' | 'owedToMe';
+  originalAmount?: number;
+  note?: string | null;
+}
+
+/**
+ * Edits the debt itself. The amount can't drop below what's already paid,
+ * and direction only flips while nothing has been paid — payments were
+ * logged as expenses/incomes matching the old direction.
+ */
+export async function updateUtang(db: Db, id: number, patch: UtangPatch): Promise<void> {
+  const [debt] = await db.select().from(utang).where(eq(utang.id, id));
+  if (!debt) throw new Error(`No utang ${id}`);
+  if (patch.personName !== undefined && !patch.personName.trim()) {
+    throw new Error('Name is required');
+  }
+  if (patch.originalAmount !== undefined) {
+    if (!Number.isInteger(patch.originalAmount) || patch.originalAmount <= 0) {
+      throw new Error('Utang amount must be positive centavos');
+    }
+    const paid = debt.originalAmount - (await utangRemaining(db, id));
+    if (patch.originalAmount < paid) {
+      throw new Error(`New amount is below what was already paid (${paid} centavos)`);
+    }
+  }
+  if (patch.direction !== undefined && patch.direction !== debt.direction) {
+    const payments = await db.select().from(utangPayments).where(eq(utangPayments.utangId, id));
+    if (payments.length > 0) {
+      throw new Error('Direction is locked once a payment exists');
+    }
+  }
+  await db
+    .update(utang)
+    .set({
+      ...patch,
+      ...(patch.personName !== undefined ? { personName: patch.personName.trim() } : {}),
+    })
+    .where(eq(utang.id, id));
+}
+
 async function utangCategoryId(db: Db, type: 'expense' | 'income'): Promise<number | undefined> {
   const [cat] = await db
     .select()

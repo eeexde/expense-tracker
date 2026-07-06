@@ -69,6 +69,7 @@ function UtangSection({
           key={u.id}
           style={styles.card}
           onPress={() => router.push({ pathname: '/pay-utang', params: { id: String(u.id) } })}
+          onLongPress={() => router.push({ pathname: '/edit-utang', params: { id: String(u.id) } })}
         >
           <View style={styles.cardMain}>
             <Text style={styles.cardTitle}>{u.personName}</Text>
@@ -87,12 +88,16 @@ function UtangSection({
         </Pressable>
       ))}
       {settled.map((u) => (
-        <View key={u.id} style={[styles.card, styles.settled]}>
+        <Pressable
+          key={u.id}
+          style={[styles.card, styles.settled]}
+          onPress={() => router.push({ pathname: '/edit-utang', params: { id: String(u.id) } })}
+        >
           <View style={styles.cardMain}>
             <Text style={[styles.cardTitle, { color: colors.inkFaint }]}>{u.personName}</Text>
             <Text style={styles.cardSub}>Settled ✓ {formatPeso(u.originalAmount)}</Text>
           </View>
-        </View>
+        </Pressable>
       ))}
     </>
   );

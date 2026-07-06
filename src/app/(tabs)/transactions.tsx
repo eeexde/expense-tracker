@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -20,6 +21,7 @@ const TYPE_OPTIONS: { value: TxnType; label: string }[] = [
 ];
 
 export default function TransactionsScreen() {
+  const router = useRouter();
   const { db, refresh } = useDb();
   const [month, setMonth] = useState(currentMonth());
   const [type, setType] = useState<TxnType | undefined>(undefined);
@@ -97,7 +99,8 @@ export default function TransactionsScreen() {
             category={txn.categoryId != null ? categoryById.get(txn.categoryId) : undefined}
             bucket={bucketById.get(txn.bucketId)}
             toBucket={txn.toBucketId != null ? bucketById.get(txn.toBucketId) : undefined}
-            onPress={() => confirmDelete(txn)}
+            onPress={() => router.push({ pathname: '/edit-transaction', params: { id: String(txn.id) } })}
+            onLongPress={() => confirmDelete(txn)}
           />
         ))}
       </ScrollView>

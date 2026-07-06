@@ -67,10 +67,20 @@ export async function addTransfer(
   return row;
 }
 
+export interface TransactionPatch {
+  amount?: number;
+  bucketId?: number;
+  /** null clears the field (e.g. category removed while editing). */
+  toBucketId?: number | null;
+  categoryId?: number | null;
+  note?: string | null;
+  date?: string;
+}
+
 export async function updateTransaction(
   db: Db,
   id: number,
-  patch: Partial<NewTransactionInput>,
+  patch: TransactionPatch,
 ): Promise<void> {
   if (patch.amount !== undefined) assertPositive(patch.amount);
   await db.update(transactions).set(patch).where(eq(transactions.id, id));
