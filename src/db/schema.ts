@@ -41,13 +41,17 @@ export const transactions = sqliteTable(
     installmentId: integer('installment_id').references(() => installments.id),
     /** Set when this expense/income doubles as a payment on an open utang. */
     utangId: integer('utang_id').references(() => utang.id),
-    /** Gmail-of-notifications dedup: raw notification key that produced this txn. */
+    /** Raw notification key that produced this txn (dedup/trace for auto-log). */
     sourceNotifKey: text('source_notif_key'),
     createdAt: text('created_at')
       .notNull()
       .$defaultFn(() => new Date().toISOString()),
   },
-  (t) => [index('idx_txn_date').on(t.date), index('idx_txn_bucket').on(t.bucketId)],
+  (t) => [
+    index('idx_txn_date').on(t.date),
+    index('idx_txn_bucket').on(t.bucketId),
+    index('idx_txn_notif_key').on(t.sourceNotifKey),
+  ],
 );
 
 export const recurring = sqliteTable('recurring', {
@@ -122,23 +126,27 @@ export const notificationSources = sqliteTable('notification_sources', {
 });
 
 /** Captured notifications awaiting review; kept after commit/discard for dedup. */
-export const pendingNotifications = sqliteTable('pending_notifications', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  sourceId: integer('source_id')
-    .notNull()
-    .references(() => notificationSources.id),
-  rawTitle: text('raw_title'),
-  rawText: text('raw_text').notNull(),
-  parsedAmount: integer('parsed_amount'),
-  parsedMerchant: text('parsed_merchant'),
-  parsedType: text('parsed_type', { enum: ['expense', 'income'] }),
-  notifKey: text('notif_key').notNull().unique(),
-  /** ISO timestamp (UTC) from the Android side. */
-  postedAt: text('posted_at').notNull(),
-  status: text('status', { enum: ['pending', 'committed', 'discarded'] })
-    .notNull()
-    .default('pending'),
-});
+export const pendingNotifications = sqliteTable(
+  'pending_notifications',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    sourceId: integer('source_id')
+      .notNull()
+      .references(() => notificationSources.id),
+    rawTitle: text('raw_title'),
+    rawText: text('raw_text').notNull(),
+    parsedAmount: integer('parsed_amount'),
+    parsedMerchant: text('parsed_merchant'),
+    parsedType: text('parsed_type', { enum: ['expense', 'income'] }),
+    notifKey: text('notif_key').notNull().unique(),
+    /** ISO timestamp (UTC) from the Android side. */
+    postedAt: text('posted_at').notNull(),
+    status: text('status', { enum: ['pending', 'committed', 'discarded'] })
+      .notNull()
+      .default('pending'),
+  },
+  (t) => [index('idx_pending_status').on(t.status)],
+);
 
 /** First matching keyword (by priority asc, then id asc) assigns the category. */
 export const categoryRules = sqliteTable('category_rules', {

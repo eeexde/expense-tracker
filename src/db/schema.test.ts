@@ -91,4 +91,11 @@ describe('notification auto-log tables', () => {
     await db.insert(pendingNotifications).values(row);
     await expect(db.insert(pendingNotifications).values(row)).rejects.toThrow();
   });
+
+  it('rejects a notification source pointing at a missing bucket', async () => {
+    const db = createTestDb();
+    await expect(
+      db.insert(notificationSources).values({ bucketId: 999, packageName: 'x' }),
+    ).rejects.toThrow();
+  });
 });
