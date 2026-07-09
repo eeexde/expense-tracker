@@ -7,19 +7,21 @@ export interface ParsedNotification {
 }
 
 // PHP 1,234.56 | ₱1,234.56 | Php 1500 — currency marker required to avoid
-// matching reference numbers or dates.
-const AMOUNT = /(?:PHP|Php|php|₱|P)\s*([\d,]+(?:\.\d{1,2})?)\b/;
+// matching reference numbers or dates. The lookbehind keeps the bare-P marker
+// from matching inside words like "OTP 123456".
+const AMOUNT = /(?<![A-Za-z0-9])(?:PHP|Php|php|₱|P)\s*([\d,]+(?:\.\d{1,2})?)\b/;
 // GCash "send money" logs as expense per spec.
 const EXPENSE_VERB = /\b(spent|paid|purchased?|charged|debited|sent)\b/i;
 const INCOME_VERB = /\b(received|refund(?:ed)?|cashback|credited)\b/i;
 // "to JOLLIBEE MAKATI via ..." / "at SM SUPERMALLS on 07/10" / "from JUAN."
+// {1,40} caps the capture at a plausible merchant-name length.
 const MERCHANT =
-  /\b(?:at|to|from)\s+([A-Z0-9][A-Za-z0-9 .&'\-]{1,40}?)(?=\s+(?:on|via|last|with|using)\b|[.,!]|$)/;
+  /\b(?:at|to|from)\s+([A-Z0-9][A-Za-z0-9 .&'\-]{1,40}?)(?=\s+(?:on|via|last|with|using)\b|[.,!]|$)/i;
 
 function centavosFrom(token: string): number {
   const clean = token.replace(/,/g, '');
   const [pesos, cents = ''] = clean.split('.');
-  return parseInt(pesos, 10) * 100 + parseInt(cents.padEnd(2, '0') || '0', 10);
+  return parseInt(pesos, 10) * 100 + parseInt(cents.padEnd(2, '0'), 10);
 }
 
 /**

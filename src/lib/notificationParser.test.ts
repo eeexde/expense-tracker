@@ -49,4 +49,20 @@ describe('parseNotification', () => {
     const r = parseNotification('You received a refund. Previously paid PHP 100.00 at STORE.');
     expect(r.direction).toBe('income');
   });
+
+  it('does not mistake OTP codes for amounts', () => {
+    const r = parseNotification('Your OTP 123456 confirms that you paid PHP 500.00 at JOLLIBEE.');
+    expect(r.amountCentavos).toBe(50000);
+    expect(r.direction).toBe('expense');
+  });
+
+  it('parses all-caps notifications including merchant', () => {
+    const r = parseNotification('A CARD TRANSACTION OF PHP1,234.56 WAS MADE AT SM MEGAMALL ON 07/10/2026.');
+    expect(r.amountCentavos).toBe(123456);
+    expect(r.merchant).toBe('SM MEGAMALL');
+  });
+
+  it('single decimal digit pads to centavos', () => {
+    expect(parseNotification('You paid PHP 99.5 to STORE').amountCentavos).toBe(9950);
+  });
 });
