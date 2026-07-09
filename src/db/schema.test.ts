@@ -1,4 +1,11 @@
-import { buckets, categories, transactions } from './schema';
+import {
+  buckets,
+  categories,
+  categoryRules,
+  notificationSources,
+  pendingNotifications,
+  transactions,
+} from './schema';
 import { seedIfEmpty, PRESET_BUCKETS } from './seed';
 import { createTestDb } from './testDb';
 
@@ -35,5 +42,53 @@ describe('db schema', () => {
     expect(allCategories.filter((c) => c.type === 'income').map((c) => c.name)).toContain(
       'Freelance',
     );
+  });
+});
+
+describe('notification auto-log tables', () => {
+  it('inserts a source, a pending notification, and a category rule', async () => {
+    const db = createTestDb();
+    const [bucket] = await db
+      .insert(buckets)
+      .values({ name: 'GCash' })
+      .returning();
+    const [source] = await db
+      .insert(notificationSources)
+      .values({ bucketId: bucket.id, packageName: 'com.globe.gcash.android' })
+      .returning();
+    expect(source.enabled).toBe(true);
+
+    const [pending] = await db
+      .insert(pendingNotifications)
+      .values({
+        sourceId: source.id,
+        rawText: 'You have sent PHP 150.00 to JOLLIBEE',
+        notifKey: 'k1',
+        postedAt: '2026-07-10T03:00:00Z',
+      })
+      .returning();
+    expect(pending.status).toBe('pending');
+
+    const [cat] = await db
+      .insert(categories)
+      .values({ name: 'Eating Out', type: 'expense' })
+      .returning();
+    const [rule] = await db
+      .insert(categoryRules)
+      .values({ keyword: 'jollibee', categoryId: cat.id })
+      .returning();
+    expect(rule.priority).toBe(0);
+  });
+
+  it('rejects duplicate notifKey', async () => {
+    const db = createTestDb();
+    const [bucket] = await db.insert(buckets).values({ name: 'B' }).returning();
+    const [source] = await db
+      .insert(notificationSources)
+      .values({ bucketId: bucket.id, packageName: 'x' })
+      .returning();
+    const row = { sourceId: source.id, rawText: 't', notifKey: 'dup', postedAt: 'now' };
+    await db.insert(pendingNotifications).values(row);
+    await expect(db.insert(pendingNotifications).values(row)).rejects.toThrow();
   });
 });

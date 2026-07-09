@@ -41,6 +41,8 @@ export const transactions = sqliteTable(
     installmentId: integer('installment_id').references(() => installments.id),
     /** Set when this expense/income doubles as a payment on an open utang. */
     utangId: integer('utang_id').references(() => utang.id),
+    /** Gmail-of-notifications dedup: raw notification key that produced this txn. */
+    sourceNotifKey: text('source_notif_key'),
     createdAt: text('created_at')
       .notNull()
       .$defaultFn(() => new Date().toISOString()),
@@ -107,6 +109,47 @@ export const utangPayments = sqliteTable('utang_payments', {
     .references(() => buckets.id),
 });
 
+/** Maps a source app's notifications to a bucket. */
+export const notificationSources = sqliteTable('notification_sources', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  bucketId: integer('bucket_id')
+    .notNull()
+    .references(() => buckets.id),
+  packageName: text('package_name').notNull(),
+  /** Extra text filter (e.g. card last-4) when several cards share one app. */
+  matchKeyword: text('match_keyword'),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+});
+
+/** Captured notifications awaiting review; kept after commit/discard for dedup. */
+export const pendingNotifications = sqliteTable('pending_notifications', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  sourceId: integer('source_id')
+    .notNull()
+    .references(() => notificationSources.id),
+  rawTitle: text('raw_title'),
+  rawText: text('raw_text').notNull(),
+  parsedAmount: integer('parsed_amount'),
+  parsedMerchant: text('parsed_merchant'),
+  parsedType: text('parsed_type', { enum: ['expense', 'income'] }),
+  notifKey: text('notif_key').notNull().unique(),
+  /** ISO timestamp (UTC) from the Android side. */
+  postedAt: text('posted_at').notNull(),
+  status: text('status', { enum: ['pending', 'committed', 'discarded'] })
+    .notNull()
+    .default('pending'),
+});
+
+/** First matching keyword (by priority asc, then id asc) assigns the category. */
+export const categoryRules = sqliteTable('category_rules', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  keyword: text('keyword').notNull(),
+  categoryId: integer('category_id')
+    .notNull()
+    .references(() => categories.id),
+  priority: integer('priority').notNull().default(0),
+});
+
 export type Bucket = typeof buckets.$inferSelect;
 export type Category = typeof categories.$inferSelect;
 export type Transaction = typeof transactions.$inferSelect;
@@ -114,3 +157,6 @@ export type Recurring = typeof recurring.$inferSelect;
 export type Installment = typeof installments.$inferSelect;
 export type Utang = typeof utang.$inferSelect;
 export type UtangPayment = typeof utangPayments.$inferSelect;
+export type NotificationSource = typeof notificationSources.$inferSelect;
+export type PendingNotification = typeof pendingNotifications.$inferSelect;
+export type CategoryRule = typeof categoryRules.$inferSelect;
