@@ -26,6 +26,8 @@ export interface NewTransactionInput {
   installmentId?: number;
   /** Links this expense/income to an open utang it pays down. */
   utangId?: number;
+  /** Dedup/trace key when the txn came from a captured notification. */
+  sourceNotifKey?: string;
 }
 
 function assertPositive(amount: number): void {

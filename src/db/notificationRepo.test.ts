@@ -1,0 +1,232 @@
+import { createTestDb, TestDb } from './testDb';
+import { buckets, categories, pendingNotifications, transactions } from './schema';
+import {
+  addCategoryRule,
+  addSource,
+  commitPending,
+  discardPending,
+  expirePending,
+  ingestCaptured,
+  listPending,
+  matchCategory,
+} from './notificationRepo';
+
+async function setup(db: TestDb) {
+  const [bucket] = await db.insert(buckets).values({ name: 'GCash' }).returning();
+  const source = await addSource(db, {
+    bucketId: bucket.id,
+    packageName: 'com.globe.gcash.android',
+  });
+  return { bucket, source };
+}
+
+const NOW = '2026-07-10T08:00:00.000Z';
+
+describe('ingestCaptured', () => {
+  it('high confidence commits a transaction immediately', async () => {
+    const db = createTestDb();
+    await setup(db);
+    const summary = await ingestCaptured(
+      db,
+      [
+        {
+          packageName: 'com.globe.gcash.android',
+          title: 'GCash',
+          text: 'You have sent PHP 150.00 to JOLLIBEE via GCash.',
+          postedAt: NOW,
+          key: 'k1',
+        },
+      ],
+      NOW,
+    );
+    expect(summary.committed).toBe(1);
+    const txns = await db.select().from(transactions);
+    expect(txns).toHaveLength(1);
+    expect(txns[0].amount).toBe(15000);
+    expect(txns[0].type).toBe('expense');
+    expect(txns[0].sourceNotifKey).toBe('k1');
+    expect(txns[0].date).toBe('2026-07-10');
+    const rows = await db.select().from(pendingNotifications);
+    expect(rows[0].status).toBe('committed');
+  });
+
+  it('medium confidence goes to the inbox', async () => {
+    const db = createTestDb();
+    await setup(db);
+    const summary = await ingestCaptured(
+      db,
+      [
+        {
+          packageName: 'com.globe.gcash.android',
+          title: null,
+          text: 'Transaction alert: PHP 99.00 JOLLIBEE ref 123',
+          postedAt: NOW,
+          key: 'k2',
+        },
+      ],
+      NOW,
+    );
+    expect(summary.queued).toBe(1);
+    expect(await db.select().from(transactions)).toHaveLength(0);
+    const pending = await listPending(db);
+    expect(pending).toHaveLength(1);
+    expect(pending[0].parsedAmount).toBe(9900);
+  });
+
+  it('no amount is stored discarded (dedup) with no transaction', async () => {
+    const db = createTestDb();
+    await setup(db);
+    const summary = await ingestCaptured(
+      db,
+      [
+        {
+          packageName: 'com.globe.gcash.android',
+          title: null,
+          text: 'Enjoy 20% off this weekend!',
+          postedAt: NOW,
+          key: 'k3',
+        },
+      ],
+      NOW,
+    );
+    expect(summary.discarded).toBe(1);
+    expect(await listPending(db)).toHaveLength(0);
+    const rows = await db.select().from(pendingNotifications);
+    expect(rows[0].status).toBe('discarded');
+  });
+
+  it('unmapped package and duplicate keys are skipped', async () => {
+    const db = createTestDb();
+    await setup(db);
+    const entry = {
+      packageName: 'com.globe.gcash.android',
+      title: null,
+      text: 'You have sent PHP 10.00 to X.',
+      postedAt: NOW,
+      key: 'k4',
+    };
+    await ingestCaptured(db, [entry], NOW);
+    const second = await ingestCaptured(
+      db,
+      [entry, { ...entry, key: 'k5', packageName: 'com.other.app' }],
+      NOW,
+    );
+    expect(second.committed).toBe(0);
+    expect(second.skipped).toBe(2);
+    expect(await db.select().from(transactions)).toHaveLength(1);
+  });
+
+  it('matchKeyword source only claims matching text', async () => {
+    const db = createTestDb();
+    const [b1] = await db.insert(buckets).values({ name: 'Card 1111' }).returning();
+    const [b2] = await db.insert(buckets).values({ name: 'Card 2222' }).returning();
+    await addSource(db, { bucketId: b1.id, packageName: 'com.bank', matchKeyword: '1111' });
+    await addSource(db, { bucketId: b2.id, packageName: 'com.bank', matchKeyword: '2222' });
+    await ingestCaptured(
+      db,
+      [
+        {
+          packageName: 'com.bank',
+          title: 'Bank',
+          text: 'Card ending 2222 charged PHP 50.00 at STORE.',
+          postedAt: NOW,
+          key: 'k6',
+        },
+      ],
+      NOW,
+    );
+    const [txn] = await db.select().from(transactions);
+    expect(txn.bucketId).toBe(b2.id);
+  });
+
+  it('applies category rules on commit', async () => {
+    const db = createTestDb();
+    await setup(db);
+    const [cat] = await db
+      .insert(categories)
+      .values({ name: 'Eating Out', type: 'expense' })
+      .returning();
+    await addCategoryRule(db, { keyword: 'jollibee', categoryId: cat.id });
+    await ingestCaptured(
+      db,
+      [
+        {
+          packageName: 'com.globe.gcash.android',
+          title: null,
+          text: 'You have sent PHP 150.00 to JOLLIBEE.',
+          postedAt: NOW,
+          key: 'k7',
+        },
+      ],
+      NOW,
+    );
+    const [txn] = await db.select().from(transactions);
+    expect(txn.categoryId).toBe(cat.id);
+  });
+});
+
+describe('matchCategory', () => {
+  it('lower priority wins; case-insensitive contains', () => {
+    const rules = [
+      { id: 1, keyword: 'store', categoryId: 10, priority: 5 },
+      { id: 2, keyword: 'jollibee', categoryId: 20, priority: 0 },
+    ];
+    expect(matchCategory(rules, 'Paid at JOLLIBEE STORE 3')).toBe(20);
+    expect(matchCategory(rules, 'Paid at APP STORE')).toBe(10);
+    expect(matchCategory(rules, 'Paid at 7-ELEVEN')).toBeNull();
+  });
+});
+
+describe('inbox actions + expiry', () => {
+  async function queueOne(db: TestDb, key: string, postedAt: string) {
+    await ingestCaptured(
+      db,
+      [
+        {
+          packageName: 'com.globe.gcash.android',
+          title: null,
+          text: `Transaction alert: PHP 99.00 ref ${key}`,
+          postedAt,
+          key,
+        },
+      ],
+      postedAt,
+    );
+  }
+
+  it('commitPending inserts txn with overrides and marks committed', async () => {
+    const db = createTestDb();
+    await setup(db);
+    await queueOne(db, 'p1', NOW);
+    const [pending] = await listPending(db);
+    await commitPending(db, pending.id, { amount: 12345, note: 'edited' });
+    const [txn] = await db.select().from(transactions);
+    expect(txn.amount).toBe(12345);
+    expect(txn.note).toBe('edited');
+    expect(txn.sourceNotifKey).toBe('p1');
+    expect(await listPending(db)).toHaveLength(0);
+  });
+
+  it('discardPending marks discarded', async () => {
+    const db = createTestDb();
+    await setup(db);
+    await queueOne(db, 'p2', NOW);
+    const [pending] = await listPending(db);
+    await discardPending(db, pending.id);
+    expect(await listPending(db)).toHaveLength(0);
+    expect(await db.select().from(transactions)).toHaveLength(0);
+  });
+
+  it('expirePending commits items older than 2 days, leaves fresh ones', async () => {
+    const db = createTestDb();
+    await setup(db);
+    await queueOne(db, 'old', '2026-07-07T08:00:00.000Z');
+    await queueOne(db, 'fresh', '2026-07-09T08:00:00.000Z');
+    const summary = await expirePending(db, NOW);
+    expect(summary.committed).toBe(1);
+    expect(await listPending(db)).toHaveLength(1);
+    const txns = await db.select().from(transactions);
+    expect(txns).toHaveLength(1);
+    expect(txns[0].sourceNotifKey).toBe('old');
+  });
+});
