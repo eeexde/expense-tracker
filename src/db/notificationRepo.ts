@@ -50,6 +50,11 @@ export async function updateSource(
   id: number,
   patch: Partial<NewSourceInput> & { enabled?: boolean },
 ): Promise<void> {
+  if (patch.packageName !== undefined) {
+    const packageName = patch.packageName.trim();
+    if (!packageName) throw new Error('Package name is required');
+    patch = { ...patch, packageName };
+  }
   await db.update(notificationSources).set(patch).where(eq(notificationSources.id, id));
 }
 
@@ -94,7 +99,12 @@ export async function deleteCategoryRule(db: Db, id: number): Promise<void> {
   await db.delete(categoryRules).where(eq(categoryRules.id, id));
 }
 
-/** Pure matcher: lowest priority, then lowest id, case-insensitive contains. */
+/**
+ * Pure matcher: lowest priority, then lowest id, case-insensitive contains.
+ * Deliberately matches against the notification text only (mirroring
+ * parseNotification's contract); pickSource's haystack includes the title
+ * because card-last-4 routing keywords often live there instead.
+ */
 export function matchCategory(
   rules: Pick<CategoryRule, 'id' | 'keyword' | 'categoryId' | 'priority'>[],
   text: string,
@@ -193,6 +203,10 @@ export async function ingestCaptured(
       await db.insert(pendingNotifications).values({ ...base, status: 'discarded' });
       summary.discarded += 1;
     } else if (parsed.confidence === 'high') {
+      // Txn first, audit row second: the reverse order would let keyExists skip
+      // this item forever after a crash between the writes, silently dropping a
+      // transaction. This order at worst loses the audit row, and dedup via
+      // transactions.sourceNotifKey still prevents duplicates.
       await insertParsedTransaction(db, source, base, rules);
       await db.insert(pendingNotifications).values({ ...base, status: 'committed' });
       summary.committed += 1;
@@ -265,6 +279,23 @@ export async function commitPending(
     .from(pendingNotifications)
     .where(and(eq(pendingNotifications.id, id), eq(pendingNotifications.status, 'pending')));
   if (!row) throw new Error(`No pending notification ${id}`);
+
+  // Idempotent recovery: a crash between the txn insert and the status flip
+  // leaves a committed transaction behind a still-pending row. Detect it via
+  // sourceNotifKey and just finish the flip — never insert a second txn.
+  const [existing] = await db
+    .select({ id: transactions.id })
+    .from(transactions)
+    .where(eq(transactions.sourceNotifKey, row.notifKey))
+    .limit(1);
+  if (existing) {
+    await db
+      .update(pendingNotifications)
+      .set({ status: 'committed' })
+      .where(and(eq(pendingNotifications.id, id), eq(pendingNotifications.status, 'pending')));
+    return;
+  }
+
   const [source] = await db
     .select()
     .from(notificationSources)
@@ -284,17 +315,19 @@ export async function commitPending(
   const type = overrides.type ?? row.parsedType ?? 'expense';
   if (type === 'income') await addIncome(db, input);
   else await addExpense(db, input);
+  // Status guard narrows the race with a concurrent commit of the same row.
   await db
     .update(pendingNotifications)
     .set({ status: 'committed' })
-    .where(eq(pendingNotifications.id, id));
+    .where(and(eq(pendingNotifications.id, id), eq(pendingNotifications.status, 'pending')));
 }
 
+/** Only pending rows can be discarded; double-tap discard is a harmless no-op. */
 export async function discardPending(db: Db, id: number): Promise<void> {
   await db
     .update(pendingNotifications)
     .set({ status: 'discarded' })
-    .where(eq(pendingNotifications.id, id));
+    .where(and(eq(pendingNotifications.id, id), eq(pendingNotifications.status, 'pending')));
 }
 
 // ---------- expiry ----------

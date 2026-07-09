@@ -1,5 +1,6 @@
 import { createTestDb, TestDb } from './testDb';
 import { buckets, categories, pendingNotifications, transactions } from './schema';
+import { addExpense } from './repo';
 import {
   addCategoryRule,
   addSource,
@@ -9,6 +10,7 @@ import {
   ingestCaptured,
   listPending,
   matchCategory,
+  updateSource,
 } from './notificationRepo';
 
 async function setup(db: TestDb) {
@@ -228,5 +230,55 @@ describe('inbox actions + expiry', () => {
     const txns = await db.select().from(transactions);
     expect(txns).toHaveLength(1);
     expect(txns[0].sourceNotifKey).toBe('old');
+  });
+
+  it('commitPending on a non-pending id rejects', async () => {
+    const db = createTestDb();
+    await setup(db);
+    await queueOne(db, 'p3', NOW);
+    const [pending] = await listPending(db);
+    await commitPending(db, pending.id);
+    await expect(commitPending(db, pending.id)).rejects.toThrow(/no pending notification/i);
+    await expect(commitPending(db, 999)).rejects.toThrow(/no pending notification/i);
+    expect(await db.select().from(transactions)).toHaveLength(1);
+  });
+
+  it('discardPending on an already-committed row is a harmless no-op', async () => {
+    const db = createTestDb();
+    await setup(db);
+    await queueOne(db, 'p4', NOW);
+    const [pending] = await listPending(db);
+    await commitPending(db, pending.id);
+    await discardPending(db, pending.id);
+    const [row] = await db.select().from(pendingNotifications);
+    expect(row.status).toBe('committed');
+    expect(await db.select().from(transactions)).toHaveLength(1);
+  });
+
+  it('commitPending recovers when the transaction already exists (no duplicate)', async () => {
+    const db = createTestDb();
+    const { bucket } = await setup(db);
+    await queueOne(db, 'p5', NOW);
+    const [pending] = await listPending(db);
+    // Simulate a crash after the txn insert but before the status flip.
+    await addExpense(db, {
+      amount: 9900,
+      bucketId: bucket.id,
+      date: '2026-07-10',
+      sourceNotifKey: pending.notifKey,
+    });
+    await commitPending(db, pending.id);
+    expect(await db.select().from(transactions)).toHaveLength(1);
+    const [row] = await db.select().from(pendingNotifications);
+    expect(row.status).toBe('committed');
+    expect(await listPending(db)).toHaveLength(0);
+  });
+
+  it('updateSource rejects an empty package name', async () => {
+    const db = createTestDb();
+    const { source } = await setup(db);
+    await expect(updateSource(db, source.id, { packageName: '  ' })).rejects.toThrow(
+      /package name/i,
+    );
   });
 });
