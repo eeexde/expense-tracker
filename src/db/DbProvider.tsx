@@ -45,6 +45,7 @@ export function DbProvider({ children }: { children: React.ReactNode }) {
         });
         syncNotifications(instance)
           .then((s) => {
+            if (cancelled) return;
             if (s && (s.committed > 0 || s.queued > 0)) setVersion((v) => v + 1);
           })
           .catch(() => {
