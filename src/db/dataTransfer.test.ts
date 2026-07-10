@@ -1,7 +1,19 @@
-import { buckets, categories, installments, recurring, transactions, utang, utangPayments } from './schema';
+import {
+  buckets,
+  categories,
+  categoryRules,
+  installments,
+  notificationSources,
+  pendingNotifications,
+  recurring,
+  transactions,
+  utang,
+  utangPayments,
+} from './schema';
 import { createTestDb, TestDb } from './testDb';
 import { addExpense } from './repo';
 import { addUtang, addUtangPayment } from './utangRepo';
+import { addCategoryRule, addSource } from './notificationRepo';
 import { exportData, importData, validateExportPayload } from './dataTransfer';
 
 async function seedSample(db: TestDb) {
@@ -89,6 +101,69 @@ describe('dataTransfer', () => {
     await seedSample(source);
     const payload = await exportData(source);
     expect(() => validateExportPayload(payload)).not.toThrow();
+  });
+
+  it('round-trips notification sources, category rules, and pending notifications', async () => {
+    const source = createTestDb();
+    const [bucket] = await source.insert(buckets).values({ name: 'Cash', startingBalance: 100000 }).returning();
+    const [cat] = await source.insert(categories).values({ name: 'Food', type: 'expense' }).returning();
+    const notifSource = await addSource(source, {
+      bucketId: bucket.id,
+      packageName: 'com.bank.app',
+      matchKeyword: '1234',
+    });
+    await addCategoryRule(source, { keyword: 'jollibee', categoryId: cat.id });
+    await source.insert(pendingNotifications).values({
+      sourceId: notifSource.id,
+      rawTitle: 'Payment alert',
+      rawText: 'You spent 500 at Jollibee',
+      parsedAmount: 50000,
+      parsedMerchant: 'Jollibee',
+      parsedType: 'expense',
+      notifKey: 'key-1',
+      postedAt: '2026-07-01T00:00:00.000Z',
+      status: 'pending',
+    });
+
+    const payload = await exportData(source);
+    const target = createTestDb();
+    await importData(target, payload);
+
+    for (const table of [notificationSources, categoryRules, pendingNotifications]) {
+      const sourceRows = await source.select().from(table as any);
+      const targetRows = await target.select().from(table as any);
+      expect(targetRows).toEqual(sourceRows);
+    }
+  });
+
+  it('imports into the same db without a foreign key violation when auto-log rows exist', async () => {
+    const db = createTestDb();
+    await seedSample(db);
+    const [bucket] = await db.select().from(buckets).limit(1);
+    const [cat] = await db.select().from(categories).limit(1);
+    await addSource(db, { bucketId: bucket.id, packageName: 'com.bank.app' });
+    await addCategoryRule(db, { keyword: 'grab', categoryId: cat.id });
+
+    const payload = await exportData(db);
+    await expect(importData(db, payload)).resolves.not.toThrow();
+  });
+
+  it('imports an old backup that predates the auto-log tables', async () => {
+    const source = createTestDb();
+    await seedSample(source);
+    const payload = await exportData(source);
+    delete (payload.data as any).notificationSources;
+    delete (payload.data as any).pendingNotifications;
+    delete (payload.data as any).categoryRules;
+
+    const target = createTestDb();
+    await importData(target, payload);
+
+    expect(await target.select().from(notificationSources)).toHaveLength(0);
+    expect(await target.select().from(pendingNotifications)).toHaveLength(0);
+    expect(await target.select().from(categoryRules)).toHaveLength(0);
+    // old-table data still restores fine
+    expect(await target.select().from(buckets)).toHaveLength(1);
   });
 });
 

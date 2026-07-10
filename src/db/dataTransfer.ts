@@ -4,8 +4,14 @@ import {
   buckets,
   categories,
   Category,
+  CategoryRule,
+  categoryRules,
   Installment,
   installments,
+  NotificationSource,
+  notificationSources,
+  PendingNotification,
+  pendingNotifications,
   Recurring,
   recurring,
   Transaction,
@@ -31,6 +37,10 @@ export interface ExportPayload {
     installments: Installment[];
     transactions: Transaction[];
     utangPayments: UtangPayment[];
+    /** Added by the notification auto-log feature; absent in pre-auto-log backups. */
+    notificationSources?: NotificationSource[];
+    pendingNotifications?: PendingNotification[];
+    categoryRules?: CategoryRule[];
   };
 }
 
@@ -40,7 +50,10 @@ export interface ExportPayload {
  */
 const TABLES = [
   { key: 'buckets', table: buckets },
+  { key: 'notificationSources', table: notificationSources },
+  { key: 'pendingNotifications', table: pendingNotifications },
   { key: 'categories', table: categories },
+  { key: 'categoryRules', table: categoryRules },
   { key: 'utang', table: utang },
   { key: 'recurring', table: recurring },
   { key: 'installments', table: installments },
@@ -49,6 +62,13 @@ const TABLES = [
 ] as const;
 
 type TableKey = (typeof TABLES)[number]['key'];
+
+/**
+ * Tables added by the notification auto-log feature. Backups written before
+ * that feature existed won't have these keys — treat a missing key as an
+ * empty table rather than a validation failure so old backups still restore.
+ */
+const OPTIONAL_TABLES = new Set<TableKey>(['notificationSources', 'pendingNotifications', 'categoryRules']);
 
 export async function exportData(db: Db): Promise<ExportPayload> {
   const data = {} as ExportPayload['data'];
@@ -73,6 +93,7 @@ export function validateExportPayload(payload: unknown): asserts payload is Expo
   const data = p.data as Record<TableKey, unknown>;
   for (const { key } of TABLES) {
     const rows = data[key];
+    if (rows === undefined && OPTIONAL_TABLES.has(key)) continue;
     if (!Array.isArray(rows)) throw new Error(`Export file is missing the ${key} table`);
     for (const row of rows) {
       if (typeof row !== 'object' || row === null || !Number.isInteger((row as any).id)) {
@@ -98,7 +119,8 @@ export async function importData(db: Db, payload: ExportPayload): Promise<void> 
       await db.delete(table);
     }
     for (const { key, table } of TABLES) {
-      const rows = payload.data[key];
+      // Old backups omit the auto-log tables entirely; treat that as empty.
+      const rows = payload.data[key] ?? [];
       for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
         const chunk = rows.slice(i, i + INSERT_CHUNK);
         if (chunk.length) await db.insert(table).values(chunk);
