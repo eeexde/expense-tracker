@@ -6,6 +6,7 @@ import { Icon } from '@/components/Icon';
 import { TransactionRow } from '@/components/TransactionRow';
 import { useDb } from '@/db/DbProvider';
 import { useAppQuery } from '@/db/hooks';
+import { pendingCount } from '@/db/notificationRepo';
 import { deleteTransaction, listTransactions } from '@/db/repo';
 import { buckets as bucketsTable, categories as categoriesTable, Transaction } from '@/db/schema';
 import { formatPeso } from '@/lib/money';
@@ -34,6 +35,7 @@ export default function TransactionsScreen() {
   );
   const allCategories = useAppQuery((db) => db.select().from(categoriesTable));
   const allBuckets = useAppQuery((db) => db.select().from(bucketsTable));
+  const inboxCount = useAppQuery(pendingCount) ?? 0;
 
   const categoryById = new Map((allCategories ?? []).map((c) => [c.id, c]));
   const bucketById = new Map((allBuckets ?? []).map((b) => [b.id, b]));
@@ -63,6 +65,17 @@ export default function TransactionsScreen() {
           <Text style={styles.monthArrow}>›</Text>
         </Pressable>
       </View>
+
+      {inboxCount > 0 && (
+        <Pressable
+          style={styles.inboxPill}
+          onPress={() => router.push('/notification-inbox')}
+          accessibilityRole="button"
+          testID="notification-inbox-badge"
+        >
+          <Text style={styles.inboxPillText}>Inbox {inboxCount}</Text>
+        </Pressable>
+      )}
 
       <FilterRow
         allLabel="All"
@@ -182,6 +195,17 @@ const styles = StyleSheet.create({
   },
   monthArrow: { fontFamily: fonts.display, fontSize: 26, color: colors.gold },
   monthLabel: { fontFamily: fonts.display, fontSize: 18, color: colors.ink },
+  inboxPill: {
+    alignSelf: 'center',
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.gold,
+    borderWidth: 1,
+    borderRadius: radii.pill,
+    paddingVertical: spacing.xs + 2,
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  inboxPillText: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.gold },
   content: { paddingHorizontal: spacing.md, paddingBottom: spacing.xl },
   empty: {
     fontFamily: fonts.body,
