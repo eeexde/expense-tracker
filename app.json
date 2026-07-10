@@ -45,6 +45,12 @@
           "cameraPermission": "Kuripot uses the camera to capture receipts for expense logging."
         }
       ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Kuripot uses your photos to read receipts and payment screenshots for expense logging."
+        }
+      ],
       "expo-notifications",
       "expo-sharing"
     ],

@@ -152,6 +152,13 @@ const GLYPHS: Record<string, ReactElement> = {
       <Circle cx={12} cy={13} r={4} />
     </>
   ),
+  image: (
+    <>
+      <Rect x={3} y={3} width={18} height={18} rx={2} />
+      <Circle cx={8.5} cy={8.5} r={1.5} />
+      <Path d="M21 15l-5-5L5 21" />
+    </>
+  ),
   calendar: (
     <>
       <Rect x={3} y={4} width={18} height={18} rx={2} />

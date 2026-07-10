@@ -2,13 +2,14 @@ import TextRecognition from '@react-native-ml-kit/text-recognition';
 import { Directory, File, Paths } from 'expo-file-system';
 
 /**
- * Move a just-captured photo into permanent storage so the transaction can
- * reference it after the camera cache is cleared.
+ * Copy a captured or gallery-picked photo into permanent storage so the
+ * transaction can reference it after the source cache/session is cleared.
  */
 export function saveReceiptPhoto(tempUri: string): string {
   const dir = new Directory(Paths.document, 'receipts');
   dir.create({ intermediates: true, idempotent: true });
-  const dest = new File(dir, `receipt-${Date.now()}.jpg`);
+  const ext = tempUri.match(/\.(jpe?g|png|webp|heic)$/i)?.[0].toLowerCase() ?? '.jpg';
+  const dest = new File(dir, `receipt-${Date.now()}${ext}`);
   new File(tempUri).copy(dest);
   return dest.uri;
 }
