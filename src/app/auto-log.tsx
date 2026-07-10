@@ -103,7 +103,7 @@ export default function AutoLogScreen() {
       await pushWatchedPackages(db);
       setSourceModalOpen(false);
     } catch (e) {
-      Alert.alert(e instanceof Error ? e.message : 'Could not add source.');
+      Alert.alert('Could not save', e instanceof Error ? e.message : 'Could not add source.');
     }
   };
 
@@ -113,7 +113,7 @@ export default function AutoLogScreen() {
       refresh();
       await pushWatchedPackages(db);
     } catch (e) {
-      Alert.alert(e instanceof Error ? e.message : 'Could not update source.');
+      Alert.alert('Could not save', e instanceof Error ? e.message : 'Could not update source.');
     }
   };
 
@@ -124,9 +124,13 @@ export default function AutoLogScreen() {
         text: 'Remove',
         style: 'destructive',
         onPress: async () => {
-          await deleteSource(db, id);
-          refresh();
-          await pushWatchedPackages(db);
+          try {
+            await deleteSource(db, id);
+            refresh();
+            await pushWatchedPackages(db);
+          } catch (e) {
+            Alert.alert('Could not delete', e instanceof Error ? e.message : 'Could not remove source.');
+          }
         },
       },
     ]);
@@ -146,7 +150,7 @@ export default function AutoLogScreen() {
       refresh();
       setRuleModalOpen(false);
     } catch (e) {
-      Alert.alert(e instanceof Error ? e.message : 'Could not add rule.');
+      Alert.alert('Could not save', e instanceof Error ? e.message : 'Could not add rule.');
     }
   };
 
@@ -157,8 +161,12 @@ export default function AutoLogScreen() {
         text: 'Remove',
         style: 'destructive',
         onPress: async () => {
-          await deleteCategoryRule(db, id);
-          refresh();
+          try {
+            await deleteCategoryRule(db, id);
+            refresh();
+          } catch (e) {
+            Alert.alert('Could not delete', e instanceof Error ? e.message : 'Could not remove rule.');
+          }
         },
       },
     ]);
