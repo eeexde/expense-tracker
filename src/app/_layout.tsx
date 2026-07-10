@@ -52,6 +52,7 @@ export default function RootLayout() {
         <Stack.Screen name="add-bucket" options={{ presentation: 'modal' }} />
         <Stack.Screen name="edit-bucket" options={{ presentation: 'modal' }} />
         <Stack.Screen name="settings" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="auto-log" options={{ presentation: 'modal' }} />
         <Stack.Screen name="scan-receipt" options={{ presentation: 'fullScreenModal' }} />
       </Stack>
     </DbProvider>

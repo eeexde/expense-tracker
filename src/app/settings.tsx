@@ -1,6 +1,15 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDb } from '@/db/DbProvider';
 import { exportData, importData } from '@/db/dataTransfer';
@@ -113,6 +122,18 @@ export default function SettingsScreen() {
         </Pressable>
 
         {status && <Text style={styles.status}>{status}</Text>}
+
+        {Platform.OS === 'android' && (
+          <>
+            <Text style={styles.sectionTitle}>Automation</Text>
+            <Pressable style={styles.action} onPress={() => router.push('/auto-log')}>
+              <Text style={styles.actionTitle}>Auto-log from notifications</Text>
+              <Text style={styles.actionSub}>
+                Automatically capture expenses and income from bank/e-wallet notifications.
+              </Text>
+            </Pressable>
+          </>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
