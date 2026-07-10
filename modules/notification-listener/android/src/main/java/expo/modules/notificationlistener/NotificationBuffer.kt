@@ -34,9 +34,19 @@ object NotificationBuffer {
 
   private fun bufferFile(context: Context) = File(context.filesDir, BUFFER_FILE)
 
+  /** Cap so an app never drained can't grow the buffer unboundedly. */
+  private const val MAX_BUFFER_BYTES = 512L * 1024
+
   @Synchronized
   fun append(context: Context, entry: JSONObject) {
-    bufferFile(context).appendText(entry.toString() + "\n")
+    try {
+      val file = bufferFile(context)
+      if (file.length() < MAX_BUFFER_BYTES) {
+        file.appendText(entry.toString() + "\n")
+      }
+    } catch (_: Exception) {
+      // Disk trouble — drop the line; the live event below may still land.
+    }
     onCaptured?.invoke(entry.toString())
   }
 
