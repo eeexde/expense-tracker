@@ -6,7 +6,9 @@ import React, {
   useMemo,
   useState,
 } from 'react';
+import { AppState } from 'react-native';
 import { notifyPostedDues } from '@/lib/notifications';
+import { subscribeLiveCapture, syncNotifications } from '@/lib/notificationSync';
 import { PostedSummary, runCatchUp } from '@/lib/recurringEngine';
 import { todayLocal } from '@/theme';
 import { AppDb, openAppDb } from './client';
@@ -41,6 +43,13 @@ export function DbProvider({ children }: { children: React.ReactNode }) {
         notifyPostedDues(summary).catch(() => {
           // Notifications are best-effort; never block startup on them.
         });
+        syncNotifications(instance)
+          .then((s) => {
+            if (s && (s.committed > 0 || s.queued > 0)) setVersion((v) => v + 1);
+          })
+          .catch(() => {
+            // best-effort; never block startup
+          });
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e : new Error(String(e)));
       }
@@ -49,6 +58,24 @@ export function DbProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!db) return;
+    const unsubscribe = subscribeLiveCapture(db, () => setVersion((v) => v + 1));
+    const appState = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        syncNotifications(db)
+          .then((s) => {
+            if (s && (s.committed > 0 || s.queued > 0)) setVersion((v) => v + 1);
+          })
+          .catch(() => {});
+      }
+    });
+    return () => {
+      unsubscribe();
+      appState.remove();
+    };
+  }, [db]);
 
   const refresh = useCallback(() => setVersion((v) => v + 1), []);
 
