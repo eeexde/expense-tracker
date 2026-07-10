@@ -26,6 +26,15 @@ function expiryLabel(row: PendingNotification): string {
   return `Auto-logs in ${daysLeft}d`;
 }
 
+/** 'YYYY-MM-DD' in the device's local timezone — mirrors notificationRepo's private localDateOf. */
+function localDateOf(iso: string): string {
+  const d = new Date(iso);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export default function NotificationInboxScreen() {
   const router = useRouter();
   const { db, refresh } = useDb();
@@ -41,6 +50,7 @@ export default function NotificationInboxScreen() {
   const sourceById = new Map((sources ?? []).map((s) => [s.id, s]));
   const bucketById = new Map((allBuckets ?? []).map((b) => [b.id, b]));
 
+  const [busyId, setBusyId] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | undefined>(undefined);
   const [editAmount, setEditAmount] = useState<number | null>(null);
   const [editAmountText, setEditAmountText] = useState('');
@@ -51,11 +61,14 @@ export default function NotificationInboxScreen() {
 
   const openEdit = (row: PendingNotification) => {
     const source = sourceById.get(row.sourceId);
+    // Only prefill the bucket when it's still active; an archived bucket isn't
+    // shown as a chip, so the user must pick a visible one before saving.
+    const sourceBucketActive = (activeBuckets ?? []).some((b) => b.id === source?.bucketId);
     setEditingId(row.id);
     setEditAmount(row.parsedAmount ?? null);
     setEditAmountText(row.parsedAmount != null ? centavosToInput(row.parsedAmount) : '');
     setEditType(row.parsedType ?? 'expense');
-    setEditBucketId(source?.bucketId);
+    setEditBucketId(sourceBucketActive ? source?.bucketId : undefined);
     setEditCategoryId(undefined);
     setEditNote(merchantLabel(row));
   };
@@ -63,11 +76,15 @@ export default function NotificationInboxScreen() {
   const closeEdit = () => setEditingId(undefined);
 
   const confirmRow = async (id: number) => {
+    if (busyId !== null) return;
+    setBusyId(id);
     try {
       await commitPending(db, id);
       refresh();
     } catch (e) {
       Alert.alert('Could not confirm', e instanceof Error ? e.message : 'Could not confirm.');
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -78,11 +95,15 @@ export default function NotificationInboxScreen() {
         text: 'Discard',
         style: 'destructive',
         onPress: async () => {
+          if (busyId !== null) return;
+          setBusyId(row.id);
           try {
             await discardPending(db, row.id);
             refresh();
           } catch (e) {
             Alert.alert('Could not discard', e instanceof Error ? e.message : 'Could not discard.');
+          } finally {
+            setBusyId(null);
           }
         },
       },
@@ -91,6 +112,8 @@ export default function NotificationInboxScreen() {
 
   const saveEdit = async () => {
     if (editingId === undefined || editAmount === null || editBucketId === undefined) return;
+    if (busyId !== null) return;
+    setBusyId(editingId);
     try {
       await commitPending(db, editingId, {
         amount: editAmount,
@@ -103,6 +126,8 @@ export default function NotificationInboxScreen() {
       closeEdit();
     } catch (e) {
       Alert.alert('Could not save', e instanceof Error ? e.message : 'Could not save.');
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -141,30 +166,36 @@ export default function NotificationInboxScreen() {
                 </Text>
               </View>
               <Text style={styles.sub}>
-                {directionLabel} · {bucketName} · {row.postedAt.slice(0, 10)}
+                {directionLabel} · {bucketName} · {localDateOf(row.postedAt)}
               </Text>
               <Text style={styles.expiry}>{expiryLabel(row)}</Text>
               <View style={styles.actionsRow}>
                 <Pressable
-                  style={[styles.actionBtn, styles.confirmBtn]}
+                  style={[
+                    styles.actionBtn,
+                    styles.confirmBtn,
+                    (busyId !== null || row.parsedAmount == null) && styles.actionBtnDisabled,
+                  ]}
                   onPress={() => confirmRow(row.id)}
-                  disabled={row.parsedAmount == null}
+                  disabled={busyId !== null || row.parsedAmount == null}
                   accessibilityRole="button"
                   testID={`confirm-${row.id}`}
                 >
                   <Text style={[styles.actionText, styles.confirmText]}>Confirm</Text>
                 </Pressable>
                 <Pressable
-                  style={[styles.actionBtn, styles.editBtn]}
+                  style={[styles.actionBtn, styles.editBtn, busyId !== null && styles.actionBtnDisabled]}
                   onPress={() => openEdit(row)}
+                  disabled={busyId !== null}
                   accessibilityRole="button"
                   testID={`edit-${row.id}`}
                 >
                   <Text style={styles.actionText}>Edit</Text>
                 </Pressable>
                 <Pressable
-                  style={[styles.actionBtn, styles.discardBtn]}
+                  style={[styles.actionBtn, styles.discardBtn, busyId !== null && styles.actionBtnDisabled]}
                   onPress={() => discardRow(row)}
+                  disabled={busyId !== null}
                   accessibilityRole="button"
                   testID={`discard-${row.id}`}
                 >
@@ -227,7 +258,7 @@ export default function NotificationInboxScreen() {
                 testID="edit-note"
               />
               <View style={{ height: spacing.xs }} />
-              <SubmitButton label="Save" disabled={!editValid} onPress={saveEdit} />
+              <SubmitButton label="Save" disabled={!editValid || busyId !== null} onPress={saveEdit} />
             </ScrollView>
           </SafeAreaView>
         </View>
@@ -269,6 +300,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
   },
+  actionBtnDisabled: { opacity: 0.35 },
   confirmBtn: { backgroundColor: colors.gold, borderColor: colors.gold },
   editBtn: { backgroundColor: colors.surfaceRaised, borderColor: colors.border },
   discardBtn: { backgroundColor: colors.surfaceRaised, borderColor: colors.border },
