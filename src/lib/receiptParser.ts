@@ -1,6 +1,13 @@
+import { parseNotification } from './notificationParser';
+
 export interface ParsedReceipt {
   amountCentavos: number | null;
   merchant: string | null;
+}
+
+export interface ParsedTransactionImage extends ParsedReceipt {
+  /** Only set for screenshot-shaped text; receipts leave the form's default. */
+  direction: 'expense' | 'income' | null;
 }
 
 const MONEY = /\d{1,3}(?:,\d{3})*\.\d{2}/g;
@@ -59,4 +66,33 @@ export function parseReceipt(text: string): ParsedReceipt {
   MONEY.lastIndex = 0;
 
   return { amountCentavos, merchant };
+}
+
+/**
+ * Extraction for any transaction image: printed receipts and payment-app
+ * screenshots (GCash/Maya/bank). Receipt-shaped text (a TOTAL line) keeps the
+ * receipt heuristics; text with a currency-marked amount plus a payment verb
+ * is treated as a screenshot, which also yields the transaction direction.
+ * Never throws — nulls mean "couldn't tell", the form stays manual.
+ */
+export function parseTransactionImage(text: string): ParsedTransactionImage {
+  const receipt = parseReceipt(text);
+  if (TOTAL_LINE.test(text)) return { ...receipt, direction: null };
+
+  const notif = parseNotification(text);
+  if (notif.amountCentavos !== null && notif.direction !== null) {
+    return {
+      amountCentavos: notif.amountCentavos,
+      merchant: notif.merchant ?? receipt.merchant,
+      direction: notif.direction,
+    };
+  }
+
+  // Ambiguous text: receipt heuristics first, but a currency-marked amount
+  // (e.g. "₱500" — no decimals, so invisible to the receipt regex) still counts.
+  return {
+    amountCentavos: receipt.amountCentavos ?? notif.amountCentavos,
+    merchant: receipt.merchant ?? notif.merchant,
+    direction: null,
+  };
 }

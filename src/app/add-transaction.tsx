@@ -18,6 +18,7 @@ export default function AddTransactionScreen() {
   const params = useLocalSearchParams<{
     amountText?: string;
     merchant?: string;
+    kind?: string;
     photoUri?: string;
   }>();
 
@@ -75,6 +76,7 @@ export default function AddTransactionScreen() {
         openInstallments={openInstallments}
         onSubmit={save}
         onScanReceipt={() => router.push('/scan-receipt')}
+        initialKind={params.kind === 'income' ? 'income' : 'expense'}
         initialAmountText={params.amountText}
         initialNote={params.merchant}
         receiptPhotoUri={params.photoUri}

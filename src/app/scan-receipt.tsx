@@ -6,7 +6,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Icon } from '@/components/Icon';
 import { recognizeReceiptText, saveReceiptPhoto } from '@/lib/ocr';
-import { parseReceipt } from '@/lib/receiptParser';
+import { parseTransactionImage } from '@/lib/receiptParser';
 import { colors, fonts, radii, spacing } from '@/theme';
 
 /**
@@ -25,13 +25,16 @@ export default function ScanReceiptScreen() {
   const processImage = async (uri: string) => {
     const photoUri = saveReceiptPhoto(uri);
     const text = await recognizeReceiptText(photoUri);
-    const parsed = parseReceipt(text);
+    const parsed = parseTransactionImage(text);
     router.replace({
       pathname: '/add-transaction',
       params: {
         amountText:
           parsed.amountCentavos !== null ? (parsed.amountCentavos / 100).toFixed(2) : undefined,
         merchant: parsed.merchant ?? undefined,
+        // Screenshots of received money prefill income; everything else
+        // keeps the form's expense default.
+        kind: parsed.direction === 'income' ? 'income' : undefined,
         photoUri,
       },
     });

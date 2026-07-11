@@ -1,4 +1,4 @@
-import { parseReceipt } from './receiptParser';
+import { parseReceipt, parseTransactionImage } from './receiptParser';
 
 const SM_RECEIPT = `SM SUPERMARKET
 SM City Cebu
@@ -68,5 +68,59 @@ asukal 30.50`;
     const result = parseReceipt('%%%###\n@@@');
     expect(result.amountCentavos).toBeNull();
     expect(result.merchant).toBeNull();
+  });
+});
+
+describe('parseTransactionImage', () => {
+  it('keeps receipt heuristics for receipt-shaped text', () => {
+    const result = parseTransactionImage(SM_RECEIPT);
+    expect(result.amountCentavos).toBe(42350);
+    expect(result.merchant).toBe('SM SUPERMARKET');
+    expect(result.direction).toBeNull();
+  });
+
+  it('reads a GCash send-money screenshot as an expense', () => {
+    const text = `GCash
+You have sent PHP 1,250.00 to JUAN DELA CRUZ
+via GCash on 07/10/2026. Ref No. 900123456.`;
+    const result = parseTransactionImage(text);
+    expect(result.amountCentavos).toBe(125000);
+    expect(result.merchant).toBe('JUAN DELA CRUZ');
+    expect(result.direction).toBe('expense');
+  });
+
+  it('reads a received-money screenshot as income', () => {
+    const text = `Maya
+You received P500.00 from MARIA SANTOS.
+Available balance: P2,340.11`;
+    const result = parseTransactionImage(text);
+    expect(result.amountCentavos).toBe(50000);
+    expect(result.merchant).toBe('MARIA SANTOS');
+    expect(result.direction).toBe('income');
+  });
+
+  it('a TOTAL line wins over payment verbs elsewhere in the text', () => {
+    const text = `MERCURY DRUG
+BIOGESIC 500MG x10  42.50
+TOTAL 110.50
+Amount paid in CASH 200.00`;
+    const result = parseTransactionImage(text);
+    expect(result.amountCentavos).toBe(11050);
+    expect(result.direction).toBeNull();
+  });
+
+  it('falls back to a currency-marked whole-peso amount the receipt regex misses', () => {
+    // ("TINDAHAN" would trip the TIN filter in the merchant heuristic.)
+    const result = parseTransactionImage('SARI-SARI NI ALING NENA\nbayad ₱500');
+    expect(result.amountCentavos).toBe(50000);
+    expect(result.merchant).toBe('SARI-SARI NI ALING NENA');
+    expect(result.direction).toBeNull();
+  });
+
+  it('returns nulls on garbage', () => {
+    const result = parseTransactionImage('%%%###\n@@@');
+    expect(result.amountCentavos).toBeNull();
+    expect(result.merchant).toBeNull();
+    expect(result.direction).toBeNull();
   });
 });
