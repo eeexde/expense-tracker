@@ -30,15 +30,19 @@ class NotificationListenerModule : Module() {
     }
 
     Function("openSettings") {
-      val context = appContext.reactContext ?: return@Function
-      val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-      context.startActivity(intent)
+      // No bare return@Function in these DSL lambdas — their inferred return
+      // type is not Unit, so a valueless return fails to compile.
+      appContext.reactContext?.let { context ->
+        val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+      }
     }
 
     Function("setWatchedPackages") { packages: List<String> ->
-      val context = appContext.reactContext ?: return@Function
-      NotificationBuffer.setWatchedPackages(context, packages)
+      appContext.reactContext?.let { context ->
+        NotificationBuffer.setWatchedPackages(context, packages)
+      }
     }
 
     Function("drainBuffer") {
