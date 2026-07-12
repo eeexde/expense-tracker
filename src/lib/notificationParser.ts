@@ -11,8 +11,10 @@ export interface ParsedNotification {
 // from matching inside words like "OTP 123456".
 const AMOUNT = /(?<![A-Za-z0-9])(?:PHP|Php|php|₱|P)\s*([\d,]+(?:\.\d{1,2})?)\b/;
 // GCash "send money" logs as expense per spec. "payment" covers email alerts
-// phrased as "your payment of ₱X" (e.g. Atome) with no other verb.
-const EXPENSE_VERB = /\b(spent|paid|payments?|purchased?|charged|debited|sent)\b/i;
+// phrased as "your payment of ₱X" (e.g. Atome); bare "pay" covers "Pay via
+// QR"/"Pay To" (e.g. BPI) — it appears early, so earliest-verb-wins beats a
+// stray "credited" in rewards footers.
+const EXPENSE_VERB = /\b(spent|pay|paid|payments?|purchased?|charged|debited|sent)\b/i;
 const INCOME_VERB = /\b(received|refund(?:ed)?|cashback|credited)\b/i;
 // "to JOLLIBEE MAKATI via ..." / "at SM SUPERMALLS on 07/10" / "from JUAN." /
 // "payment of ₱286.50 for OSAVE ... using your Atome Card".

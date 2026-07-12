@@ -107,6 +107,15 @@ describe('parseNotification', () => {
     expect(r.confidence).toBe('high');
   });
 
+  it('BPI Pay via QR email logs as expense despite "credited" rewards footer', () => {
+    const r = parseNotification(
+      'Dear EDRIAN, You have successfully completed your Pay via QR transaction with the following details: Pay via QR Details Confirmation Number R1783810615393108935 Date and Time Sunday, Jul 12 2026; 06:56:55 AM (GMT+8) Pay From XXXX-XXX-132 (SAVINGS ACCOUNT) Pay To Atome Amount PHP 4,986.78 Transaction Ref No. 004619306759564 Notes Keep using the BPI app to Pay via QR and earn BPI Rewards Points for every transaction worth at least Php 400. Your BPI Points will be credited within 60 days after month-end.',
+    );
+    expect(r.amountCentavos).toBe(498678);
+    expect(r.direction).toBe('expense');
+    expect(r.confidence).toBe('high');
+  });
+
   it('invalid numeric entities do not throw', () => {
     expect(() => parseNotification('Broken &#99999999; PHP 10.00 paid')).not.toThrow();
     expect(parseNotification('Broken &#99999999; PHP 10.00 paid').amountCentavos).toBe(1000);
