@@ -97,6 +97,16 @@ describe('parseNotification', () => {
     expect(r.direction).toBe('expense');
   });
 
+  it('parses an Atome card email notification (real sample)', () => {
+    const r = parseNotification(
+      'Dear Edrian, We are pleased to inform you that your payment of ₱286.50 for OSAVE HAN 838 YATI LILOAN PHL using your Atome Card ending in *6982 has been successfully processed. Thank you for using Atome.',
+    );
+    expect(r.amountCentavos).toBe(28650);
+    expect(r.direction).toBe('expense');
+    expect(r.merchant).toBe('OSAVE HAN 838 YATI LILOAN PHL');
+    expect(r.confidence).toBe('high');
+  });
+
   it('invalid numeric entities do not throw', () => {
     expect(() => parseNotification('Broken &#99999999; PHP 10.00 paid')).not.toThrow();
     expect(parseNotification('Broken &#99999999; PHP 10.00 paid').amountCentavos).toBe(1000);
