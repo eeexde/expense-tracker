@@ -65,4 +65,40 @@ describe('parseNotification', () => {
   it('single decimal digit pads to centavos', () => {
     expect(parseNotification('You paid PHP 99.5 to STORE').amountCentavos).toBe(9950);
   });
+
+  it('parses HTML email snippets with tags around the fields', () => {
+    const r = parseNotification(
+      '<p>You have <b>sent</b> PHP 150.00 to <span style="color:red">JOLLIBEE</span>.</p>',
+    );
+    expect(r.amountCentavos).toBe(15000);
+    expect(r.direction).toBe('expense');
+    expect(r.merchant).toBe('JOLLIBEE');
+    expect(r.confidence).toBe('high');
+  });
+
+  it('decodes HTML entities: peso sign, nbsp, amp', () => {
+    const r = parseNotification('You paid &#8369;1,234.56 at M&amp;M&nbsp;BAKERY.');
+    expect(r.amountCentavos).toBe(123456);
+    expect(r.direction).toBe('expense');
+    expect(r.merchant).toBe('M&M BAKERY');
+  });
+
+  it('decodes hex entities and survives amounts split by nbsp', () => {
+    const r = parseNotification('Charged &#x20B1;&nbsp;99.00 at STORE.');
+    expect(r.amountCentavos).toBe(9900);
+    expect(r.direction).toBe('expense');
+  });
+
+  it('collapses multi-line HTML table layouts', () => {
+    const r = parseNotification(
+      '<table><tr><td>Amount:</td>\n<td>PHP 2,500.00</td></tr>\n<tr><td>You paid at</td><td>MERALCO</td></tr></table>',
+    );
+    expect(r.amountCentavos).toBe(250000);
+    expect(r.direction).toBe('expense');
+  });
+
+  it('invalid numeric entities do not throw', () => {
+    expect(() => parseNotification('Broken &#99999999; PHP 10.00 paid')).not.toThrow();
+    expect(parseNotification('Broken &#99999999; PHP 10.00 paid').amountCentavos).toBe(1000);
+  });
 });

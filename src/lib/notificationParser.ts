@@ -24,11 +24,39 @@ function centavosFrom(token: string): number {
   return parseInt(pesos, 10) * 100 + parseInt(cents.padEnd(2, '0'), 10);
 }
 
+function decodeCodePoint(code: number): string {
+  try {
+    return String.fromCodePoint(code);
+  } catch {
+    return ' '; // out-of-range entity — drop it, keep parsing
+  }
+}
+
+/**
+ * Email-sourced notifications (e.g. Gmail snippets of bank alerts) carry HTML
+ * tags and entities that break the field regexes. Strip tags first, then
+ * decode entities, then collapse whitespace — plain-text input passes through
+ * unchanged.
+ */
+function sanitize(text: string): string {
+  return text
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&#(\d+);/g, (_, dec) => decodeCodePoint(parseInt(dec, 10)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => decodeCodePoint(parseInt(hex, 16)))
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /**
  * Best-effort extraction from a bank/e-wallet notification. Never throws;
  * nulls mean "couldn't tell". Mirrors receiptParser.ts philosophy.
  */
-export function parseNotification(text: string): ParsedNotification {
+export function parseNotification(rawText: string): ParsedNotification {
+  const text = sanitize(rawText);
   const amountMatch = text.match(AMOUNT);
   const amountCentavos = amountMatch ? centavosFrom(amountMatch[1]) : null;
 
