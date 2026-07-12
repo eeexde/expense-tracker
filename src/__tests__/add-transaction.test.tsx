@@ -14,7 +14,7 @@ jest.mock('@/db/DbProvider', () => ({
   useDb: () => ({ db: mockTestDb, version: 0, refresh: mockRefresh, catchUp: null }),
 }));
 
-import AddTransactionScreen from './add-transaction';
+import AddTransactionScreen from '@/app/add-transaction';
 
 describe('add-transaction linked installment payment', () => {
   it('advances both the remaining balance and the months count', async () => {
