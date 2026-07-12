@@ -46,6 +46,29 @@ describe('installmentRepo', () => {
     expect(installmentRemaining(plan)).toBe(350000);
   });
 
+  it('a payment slightly under the monthly due still counts the month', async () => {
+    // Real payments rarely match the configured due to the centavo.
+    await recordLinkedInstallmentPayment(db, { installmentId: planId, amount: 95000 });
+    const [plan] = await db.select().from(installments);
+    expect(plan.amountPaid).toBe(95000);
+    expect(plan.monthsPaid).toBe(1); // months left must move with the payment
+  });
+
+  it('catch-up skips a month paid slightly under the due and settles the shortfall at the end', async () => {
+    await recordLinkedInstallmentPayment(db, { installmentId: planId, amount: 95000 });
+    // First due (Jan 10) is covered by the linked payment — nothing posts.
+    await runCatchUp(db, '2026-01-31');
+    expect(await db.select().from(transactions)).toHaveLength(0);
+    // Remaining five dues post; the final one collects the ₱50 shortfall too.
+    await runCatchUp(db, '2026-06-30');
+    const txns = await db.select().from(transactions);
+    expect(txns).toHaveLength(5);
+    expect(txns.map((t) => t.amount)).toEqual([100000, 100000, 100000, 100000, 105000]);
+    const [plan] = await db.select().from(installments);
+    expect(plan.amountPaid).toBe(600000);
+    expect(plan.monthsPaid).toBe(6);
+  });
+
   it('rejects payments above the remaining balance', async () => {
     await expect(
       recordLinkedInstallmentPayment(db, { installmentId: planId, amount: 700000 }),

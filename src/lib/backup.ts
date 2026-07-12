@@ -1,4 +1,4 @@
-import { File, Paths } from 'expo-file-system';
+import { Directory, File, Paths } from 'expo-file-system';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Sharing from 'expo-sharing';
 import { ExportPayload } from '@/db/dataTransfer';
@@ -25,6 +25,23 @@ export async function shareBackup(payload: ExportPayload, today: string): Promis
     UTI: 'public.json',
   });
   return true;
+}
+
+/**
+ * Saves the payload straight to a folder the user picks (e.g. Downloads),
+ * skipping the share sheet. Returns the saved filename, or null if the user
+ * backs out of the folder picker.
+ */
+export async function downloadBackup(payload: ExportPayload, today: string): Promise<string | null> {
+  let dir: Directory;
+  try {
+    dir = await Directory.pickDirectoryAsync();
+  } catch {
+    return null; // picker dismissed
+  }
+  const file = dir.createFile(backupFilename(today), 'application/json');
+  file.write(JSON.stringify(payload, null, 2));
+  return file.name ?? backupFilename(today);
 }
 
 /**

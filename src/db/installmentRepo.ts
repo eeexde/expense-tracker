@@ -7,9 +7,20 @@ export interface InstallmentWithRemaining extends Installment {
   remaining: number;
 }
 
-/** monthsPaid is display-only, derived from the centavos actually paid. */
+/** Months fully covered by the centavos actually paid — a floor on monthsPaid. */
 export function monthsCovered(plan: Pick<Installment, 'amountPaid' | 'monthlyDue' | 'monthsTotal'>): number {
   return Math.min(Math.floor(plan.amountPaid / plan.monthlyDue), plan.monthsTotal);
+}
+
+/**
+ * Months a single linked payment counts for. Real payments rarely match the
+ * configured due to the centavo (fees, rounding), so a payment within 10% of
+ * n dues counts as n months — and linking a payment always counts at least
+ * one month, otherwise a short payment would stall the months-left display
+ * and make catch-up re-post a month the user already paid.
+ */
+export function monthsFromPayment(amount: number, monthlyDue: number): number {
+  return Math.max(1, Math.floor(amount / monthlyDue + 0.1));
 }
 
 export function installmentRemaining(plan: Pick<Installment, 'totalAmount' | 'amountPaid'>): number {
@@ -64,7 +75,12 @@ export async function updateInstallment(db: Db, id: number, patch: InstallmentPa
       ...patch,
       ...(patch.itemName !== undefined ? { itemName: patch.itemName.trim() } : {}),
       totalAmount,
-      monthsPaid: monthsCovered({ amountPaid: plan.amountPaid, monthlyDue, monthsTotal }),
+      // Never drop below the months already counted as paid; re-derive only
+      // pushes the count up (e.g. a smaller monthly due covers more months).
+      monthsPaid: Math.min(
+        Math.max(plan.monthsPaid, monthsCovered({ amountPaid: plan.amountPaid, monthlyDue, monthsTotal })),
+        monthsTotal,
+      ),
     })
     .where(eq(installments.id, id));
 }
@@ -92,8 +108,15 @@ export async function recordLinkedInstallmentPayment(
     throw new Error(`Payment exceeds remaining balance (${remaining} centavos)`);
   }
   const amountPaid = plan.amountPaid + input.amount;
+  const monthsPaid = Math.min(
+    Math.max(
+      plan.monthsPaid + monthsFromPayment(input.amount, plan.monthlyDue),
+      monthsCovered({ ...plan, amountPaid }),
+    ),
+    plan.monthsTotal,
+  );
   await db
     .update(installments)
-    .set({ amountPaid, monthsPaid: monthsCovered({ ...plan, amountPaid }) })
+    .set({ amountPaid, monthsPaid })
     .where(eq(installments.id, input.installmentId));
 }

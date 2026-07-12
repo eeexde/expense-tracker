@@ -120,14 +120,22 @@ export async function runCatchUp(db: Db, today: string): Promise<PostedSummary> 
       dayBefore(plan.startDate),
       today,
     );
-    // Advance payments already cover the next floor(amountPaid / monthlyDue)
-    // dues, so those months post nothing.
-    const covered = Math.min(Math.floor(plan.amountPaid / plan.monthlyDue), plan.monthsTotal);
+    // Months already paid post nothing. monthsPaid counts linked payments
+    // (which may be slightly under the due — fees/rounding), so trust it as
+    // well as the money-derived floor(amountPaid / monthlyDue) for advances.
+    const derived = Math.min(Math.floor(plan.amountPaid / plan.monthlyDue), plan.monthsTotal);
+    const covered = Math.min(Math.max(plan.monthsPaid, derived), plan.monthsTotal);
     const unpaidDues = allDues.slice(covered, plan.monthsTotal);
     let amountPaid = plan.amountPaid;
-    for (const date of unpaidDues) {
-      // The last due only charges what's actually left after advances.
-      const amount = Math.min(plan.monthlyDue, plan.totalAmount - amountPaid);
+    let monthsPaid = covered;
+    for (const [i, date] of unpaidDues.entries()) {
+      // The plan's final due collects everything left (advance clamps and any
+      // shortfall from under-due linked payments); earlier dues never exceed
+      // the monthly amount.
+      const finalMonth = covered + i + 1 === plan.monthsTotal;
+      const amount = finalMonth
+        ? plan.totalAmount - amountPaid
+        : Math.min(plan.monthlyDue, plan.totalAmount - amountPaid);
       if (amount <= 0) break;
       await db.insert(transactions).values({
         type: 'expense',
@@ -138,15 +146,13 @@ export async function runCatchUp(db: Db, today: string): Promise<PostedSummary> 
         installmentId: plan.id,
       });
       amountPaid += amount;
+      monthsPaid += 1;
       posted.push({ name: plan.itemName, amount, date });
     }
     if (amountPaid !== plan.amountPaid) {
       await db
         .update(installments)
-        .set({
-          amountPaid,
-          monthsPaid: Math.min(Math.floor(amountPaid / plan.monthlyDue), plan.monthsTotal),
-        })
+        .set({ amountPaid, monthsPaid: Math.min(monthsPaid, plan.monthsTotal) })
         .where(eq(installments.id, plan.id));
     }
   }

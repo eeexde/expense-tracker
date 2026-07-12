@@ -191,6 +191,17 @@ export default function AutoLogScreen() {
   const bucketItems = (activeBuckets ?? []).map((b) => ({ id: b.id, label: b.name, icon: b.icon }));
   const categoryItems = (allCategories ?? []).map((c) => ({ id: c.id, label: c.name, icon: c.icon }));
 
+  // The package field doubles as a search box: narrow the app list by label
+  // or package name until an exact package is picked/typed.
+  const appQuery = packageName.trim().toLowerCase();
+  const visibleApps = appQuery
+    ? apps.filter(
+        (app) =>
+          app.label.toLowerCase().includes(appQuery) ||
+          app.packageName.toLowerCase().includes(appQuery),
+      )
+    : apps;
+
   const sourceValid = packageName.trim() !== '' && bucketId !== undefined;
   const ruleValid = ruleKeyword.trim() !== '' && ruleCategoryId !== undefined;
 
@@ -297,7 +308,7 @@ export default function AutoLogScreen() {
               </Pressable>
             </View>
             <FlatList
-              data={apps}
+              data={visibleApps}
               keyExtractor={(item) => item.packageName}
               contentContainerStyle={formStyles.content}
               keyboardShouldPersistTaps="handled"
@@ -308,7 +319,7 @@ export default function AutoLogScreen() {
                     style={formStyles.textInput}
                     value={packageName}
                     onChangeText={setPackageName}
-                    placeholder="or type package name (e.g. com.android.shell for testing)"
+                    placeholder="Search apps, or type a package name"
                     placeholderTextColor={colors.inkFaint}
                     autoCapitalize="none"
                     testID="source-package"
@@ -330,7 +341,11 @@ export default function AutoLogScreen() {
                   </Pressable>
                 );
               }}
-              ListEmptyComponent={<Text style={styles.hint}>No launchable apps found.</Text>}
+              ListEmptyComponent={
+                <Text style={styles.hint}>
+                  {appQuery ? 'No apps match — the typed package name is used as-is.' : 'No launchable apps found.'}
+                </Text>
+              }
               ListFooterComponent={
                 <View style={{ gap: spacing.sm }}>
                   <Text style={formStyles.label}>Bucket</Text>

@@ -13,7 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDb } from '@/db/DbProvider';
 import { exportData, importData } from '@/db/dataTransfer';
-import { pickBackup, shareBackup } from '@/lib/backup';
+import { downloadBackup, pickBackup, shareBackup } from '@/lib/backup';
 import { colors, fonts, radii, spacing, todayLocal } from '@/theme';
 
 type Busy = 'export' | 'import' | null;
@@ -24,19 +24,32 @@ export default function SettingsScreen() {
   const [busy, setBusy] = useState<Busy>(null);
   const [status, setStatus] = useState<string | null>(null);
 
-  const runExport = async () => {
+  const runExport = (mode: 'download' | 'share') => async () => {
     setBusy('export');
     setStatus(null);
     try {
       const payload = await exportData(db);
-      const shared = await shareBackup(payload, todayLocal());
       const count = Object.values(payload.data).reduce((n, rows) => n + rows.length, 0);
-      setStatus(shared ? `Exported ${count} records.` : 'Sharing is not available on this device.');
+      if (mode === 'download') {
+        const saved = await downloadBackup(payload, todayLocal());
+        setStatus(saved ? `Saved ${saved} (${count} records).` : null);
+      } else {
+        const shared = await shareBackup(payload, todayLocal());
+        setStatus(shared ? `Exported ${count} records.` : 'Sharing is not available on this device.');
+      }
     } catch (e) {
       setStatus(e instanceof Error ? e.message : 'Export failed.');
     } finally {
       setBusy(null);
     }
+  };
+
+  const chooseExport = () => {
+    Alert.alert('Export data', 'Save the backup file to a folder on this device, or send it through the share sheet.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Share…', onPress: runExport('share') },
+      { text: 'Save to device', onPress: runExport('download') },
+    ]);
   };
 
   const runImport = async () => {
@@ -93,7 +106,7 @@ export default function SettingsScreen() {
 
         <Pressable
           style={[styles.action, busy && styles.actionDisabled]}
-          onPress={runExport}
+          onPress={chooseExport}
           disabled={busy !== null}
         >
           {busy === 'export' ? (
@@ -101,7 +114,7 @@ export default function SettingsScreen() {
           ) : (
             <>
               <Text style={styles.actionTitle}>Export data</Text>
-              <Text style={styles.actionSub}>Save a backup file you can keep or share.</Text>
+              <Text style={styles.actionSub}>Save a backup file to this device, or share it.</Text>
             </>
           )}
         </Pressable>
