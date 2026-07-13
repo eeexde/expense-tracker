@@ -120,4 +120,13 @@ describe('parseNotification', () => {
     expect(() => parseNotification('Broken &#99999999; PHP 10.00 paid')).not.toThrow();
     expect(parseNotification('Broken &#99999999; PHP 10.00 paid').amountCentavos).toBe(1000);
   });
+
+  it('BPI incoming Instapay email logs as income despite "sent via" in body', () => {
+    const r = parseNotification(
+      'Incoming Interbank Funds Transfer Confirmation Dear EDRIAN, You have an incoming interbank funds transfer sent via Instapay with the following details. Interbank Funds Transfer Transaction Details Reference Number 20260713MBTCPHMMXXXB600000000633152 Transaction Date and Time Monday, Jul 13 2026; 05:29:44 PM(GMT + 8) Transfer From XXXXXXXXX1717 Transfer To XXXXXX0132 Bank Name Metropolitan Bank and Trust Company Transfer Amount PHP 15,337.00 Transfer Service INSTAPAY Important Reminders: Successful transactions will be credited real-time.',
+    );
+    expect(r.amountCentavos).toBe(1533700);
+    expect(r.direction).toBe('income');
+    expect(r.confidence).toBe('high');
+  });
 });

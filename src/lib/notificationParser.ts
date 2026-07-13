@@ -15,7 +15,9 @@ const AMOUNT = /(?<![A-Za-z0-9])(?:PHP|Php|php|₱|P)\s*([\d,]+(?:\.\d{1,2})?)\b
 // QR"/"Pay To" (e.g. BPI) — it appears early, so earliest-verb-wins beats a
 // stray "credited" in rewards footers.
 const EXPENSE_VERB = /\b(spent|pay|paid|payments?|purchased?|charged|debited|sent)\b/i;
-const INCOME_VERB = /\b(received|refund(?:ed)?|cashback|credited)\b/i;
+// "incoming" leads BPI's Instapay-receive emails, whose body also says
+// "transfer *sent* via Instapay" — earliest-verb-wins needs the early signal.
+const INCOME_VERB = /\b(incoming|received|refund(?:ed)?|cashback|credited)\b/i;
 // "to JOLLIBEE MAKATI via ..." / "at SM SUPERMALLS on 07/10" / "from JUAN." /
 // "payment of ₱286.50 for OSAVE ... using your Atome Card".
 // {1,40} caps the capture at a plausible merchant-name length.
