@@ -28,7 +28,14 @@ import {
   watchedPackages,
 } from '@/db/notificationRepo';
 import { buckets as bucketsTable, categories as categoriesTable } from '@/db/schema';
+import { getSetting, setSetting } from '@/db/settingsRepo';
 import { eq } from 'drizzle-orm';
+import {
+  deleteModel,
+  downloadModel,
+  isModelDownloaded,
+  llmSupported,
+} from '@/lib/llmController';
 import { colors, fonts, radii, spacing } from '@/theme';
 import {
   getLaunchableApps,
@@ -81,6 +88,23 @@ export default function AutoLogScreen() {
   const [ruleModalOpen, setRuleModalOpen] = useState(false);
   const [ruleKeyword, setRuleKeyword] = useState('');
   const [ruleCategoryId, setRuleCategoryId] = useState<number | undefined>(undefined);
+
+  const [aiDownloaded, setAiDownloaded] = useState(false);
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [aiDownloading, setAiDownloading] = useState(false);
+  const [aiProgress, setAiProgress] = useState(0);
+
+  const refreshAiState = useCallback(() => {
+    if (!llmSupported) return;
+    isModelDownloaded(db).then(setAiDownloaded);
+    getSetting(db, 'aiParsingEnabled').then((value) => setAiEnabled(value === 'true'));
+  }, [db]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshAiState();
+    }, [refreshAiState]),
+  );
 
   const openSourceModal = () => {
     setApps(getLaunchableApps());
@@ -166,6 +190,45 @@ export default function AutoLogScreen() {
             refresh();
           } catch (e) {
             Alert.alert('Could not delete', e instanceof Error ? e.message : 'Could not remove rule.');
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleDownloadModel = async () => {
+    setAiDownloading(true);
+    setAiProgress(0);
+    try {
+      await downloadModel(db, setAiProgress);
+      setAiDownloaded(true);
+    } catch (e) {
+      Alert.alert('Could not download', e instanceof Error ? e.message : 'Download failed.');
+    } finally {
+      setAiDownloading(false);
+    }
+  };
+
+  const handleToggleAi = async (next: boolean) => {
+    await setSetting(db, 'aiParsingEnabled', next ? 'true' : 'false');
+    setAiEnabled(next);
+    refresh();
+  };
+
+  const confirmDeleteModel = () => {
+    Alert.alert('Delete AI model?', 'Frees storage; auto-parsing falls back to rules only.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteModel(db);
+            setAiDownloaded(false);
+            setAiEnabled(false);
+            refresh();
+          } catch (e) {
+            Alert.alert('Could not delete', e instanceof Error ? e.message : 'Could not delete model.');
           }
         },
       },
@@ -291,6 +354,55 @@ export default function AutoLogScreen() {
           <Text style={styles.empty}>No rules yet. Keywords auto-assign a category on match.</Text>
         )}
         <Text style={styles.hint}>Long-press a row to remove it.</Text>
+
+        {llmSupported && (
+          <>
+            <Text style={styles.sectionTitle}>AI parsing (beta)</Text>
+            <Text style={styles.sectionSub}>
+              Runs entirely on this phone. Used only when the regular parser can&apos;t tell expense
+              from income.
+            </Text>
+
+            {!aiDownloaded && !aiDownloading && (
+              <Pressable style={styles.action} onPress={handleDownloadModel}>
+                <Text style={styles.actionTitle}>Download AI model</Text>
+                <Text style={styles.sectionSub}>
+                  ~1 GB · Wi-Fi recommended · runs entirely on your phone
+                </Text>
+              </Pressable>
+            )}
+
+            {aiDownloading && (
+              <View style={styles.card}>
+                <View style={styles.cardMain}>
+                  <View style={styles.progressTrack}>
+                    <View style={[styles.progressFill, { width: `${aiProgress * 100}%` }]} />
+                  </View>
+                  <Text style={styles.cardSub}>Downloading… {Math.round(aiProgress * 100)}%</Text>
+                </View>
+              </View>
+            )}
+
+            {aiDownloaded && !aiDownloading && (
+              <>
+                <View style={styles.card}>
+                  <View style={styles.cardMain}>
+                    <Text style={styles.cardTitle}>Parse with AI when rules fail</Text>
+                  </View>
+                  <Switch
+                    value={aiEnabled}
+                    onValueChange={handleToggleAi}
+                    trackColor={{ false: colors.border, true: colors.goldDim }}
+                    thumbColor={aiEnabled ? colors.gold : colors.inkFaint}
+                  />
+                </View>
+                <Pressable style={styles.action} onPress={confirmDeleteModel}>
+                  <Text style={styles.actionTitle}>Delete model</Text>
+                </Pressable>
+              </>
+            )}
+          </>
+        )}
       </ScrollView>
 
       <Modal
@@ -500,4 +612,15 @@ const styles = StyleSheet.create({
   appRowActive: { borderColor: colors.gold, backgroundColor: colors.surfaceRaised },
   appLabel: { fontFamily: fonts.bodyMedium, fontSize: 14, color: colors.ink },
   appPkg: { fontFamily: fonts.body, fontSize: 11, color: colors.inkFaint },
+  progressTrack: {
+    height: 8,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surfaceRaised,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: 8,
+    borderRadius: radii.pill,
+    backgroundColor: colors.gold,
+  },
 });
