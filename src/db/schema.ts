@@ -158,6 +158,12 @@ export const categoryRules = sqliteTable('category_rules', {
   priority: integer('priority').notNull().default(0),
 });
 
+/** Small app-level key/value settings (e.g. AI parsing toggle). */
+export const appSettings = sqliteTable('app_settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+});
+
 export type Bucket = typeof buckets.$inferSelect;
 export type Category = typeof categories.$inferSelect;
 export type Transaction = typeof transactions.$inferSelect;
@@ -168,3 +174,4 @@ export type UtangPayment = typeof utangPayments.$inferSelect;
 export type NotificationSource = typeof notificationSources.$inferSelect;
 export type PendingNotification = typeof pendingNotifications.$inferSelect;
 export type CategoryRule = typeof categoryRules.$inferSelect;
+export type AppSetting = typeof appSettings.$inferSelect;

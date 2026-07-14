@@ -1,4 +1,5 @@
 import {
+  appSettings,
   buckets,
   categories,
   categoryRules,
@@ -14,6 +15,7 @@ import { createTestDb, TestDb } from './testDb';
 import { addExpense } from './repo';
 import { addUtang, addUtangPayment } from './utangRepo';
 import { addCategoryRule, addSource } from './notificationRepo';
+import { setSetting } from './settingsRepo';
 import { exportData, importData, validateExportPayload } from './dataTransfer';
 
 async function seedSample(db: TestDb) {
@@ -162,6 +164,34 @@ describe('dataTransfer', () => {
     expect(await target.select().from(notificationSources)).toHaveLength(0);
     expect(await target.select().from(pendingNotifications)).toHaveLength(0);
     expect(await target.select().from(categoryRules)).toHaveLength(0);
+    // old-table data still restores fine
+    expect(await target.select().from(buckets)).toHaveLength(1);
+  });
+
+  it('round-trips app_settings', async () => {
+    const source = createTestDb();
+    await seedSample(source);
+    await setSetting(source, 'aiParsingEnabled', 'true');
+
+    const payload = await exportData(source);
+    const target = createTestDb();
+    await importData(target, payload);
+
+    const rows = await target.select().from(appSettings);
+    expect(rows).toEqual(await source.select().from(appSettings));
+    expect(rows).toEqual([{ key: 'aiParsingEnabled', value: 'true' }]);
+  });
+
+  it('imports an old backup that predates app_settings', async () => {
+    const source = createTestDb();
+    await seedSample(source);
+    const payload = await exportData(source);
+    delete (payload.data as any).appSettings;
+
+    const target = createTestDb();
+    await importData(target, payload);
+
+    expect(await target.select().from(appSettings)).toHaveLength(0);
     // old-table data still restores fine
     expect(await target.select().from(buckets)).toHaveLength(1);
   });

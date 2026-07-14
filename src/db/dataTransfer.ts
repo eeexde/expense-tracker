@@ -1,5 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
+  AppSetting,
+  appSettings,
   Bucket,
   buckets,
   categories,
@@ -41,6 +43,8 @@ export interface ExportPayload {
     notificationSources?: NotificationSource[];
     pendingNotifications?: PendingNotification[];
     categoryRules?: CategoryRule[];
+    /** Added by the on-device LLM feature; absent in older backups. */
+    appSettings?: AppSetting[];
   };
 }
 
@@ -49,6 +53,7 @@ export interface ExportPayload {
  * deletes run in reverse.
  */
 const TABLES = [
+  { key: 'appSettings', table: appSettings },
   { key: 'buckets', table: buckets },
   { key: 'notificationSources', table: notificationSources },
   { key: 'pendingNotifications', table: pendingNotifications },
@@ -68,7 +73,12 @@ type TableKey = (typeof TABLES)[number]['key'];
  * that feature existed won't have these keys — treat a missing key as an
  * empty table rather than a validation failure so old backups still restore.
  */
-const OPTIONAL_TABLES = new Set<TableKey>(['notificationSources', 'pendingNotifications', 'categoryRules']);
+const OPTIONAL_TABLES = new Set<TableKey>([
+  'notificationSources',
+  'pendingNotifications',
+  'categoryRules',
+  'appSettings',
+]);
 
 export async function exportData(db: Db): Promise<ExportPayload> {
   const data = {} as ExportPayload['data'];
@@ -96,9 +106,15 @@ export function validateExportPayload(payload: unknown): asserts payload is Expo
     if (rows === undefined && OPTIONAL_TABLES.has(key)) continue;
     if (!Array.isArray(rows)) throw new Error(`Export file is missing the ${key} table`);
     for (const row of rows) {
-      if (typeof row !== 'object' || row === null || !Number.isInteger((row as any).id)) {
+      if (typeof row !== 'object' || row === null) {
         throw new Error(`A ${key} row is malformed`);
       }
+      // app_settings is keyed by a text `key`, not an integer `id`.
+      const idOk =
+        key === 'appSettings'
+          ? typeof (row as any).key === 'string' && (row as any).key.length > 0
+          : Number.isInteger((row as any).id);
+      if (!idOk) throw new Error(`A ${key} row is malformed`);
     }
   }
 }
