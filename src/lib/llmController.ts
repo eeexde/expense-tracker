@@ -5,7 +5,7 @@ import {
   QWEN3_1_7B_QUANTIZED,
 } from 'react-native-executorch';
 import { ExpoResourceFetcher } from 'react-native-executorch-expo-resource-fetcher';
-import { getSetting } from '../db/settingsRepo';
+import { getSetting, setSetting } from '../db/settingsRepo';
 import { classifyWithLlm, LlmClassification } from './llmParser';
 
 /**
@@ -22,6 +22,15 @@ type Db = any;
  */
 export const llmSupported = Platform.OS === 'android' && Number(Platform.Version) >= 33;
 
+/**
+ * app_settings key persisting whether the ~1GB model files have been downloaded
+ * to disk. This is the source of truth for "is the model available", NOT the
+ * in-memory `module` var — the RAM instance resets on every app restart while
+ * the cached files survive, so relying on `module` would silently disable
+ * classification after a cold start until something re-primed it.
+ */
+const DOWNLOADED_KEY = 'aiModelDownloaded';
+
 // `initExecutorch` wires up the resource fetcher (Expo's document-directory
 // based downloader/cache) used by `LLMModule.fromModelName` below. Must run
 // once, before any model load, and never on a platform/test runner where the
@@ -34,16 +43,16 @@ if (llmSupported) {
 export type LlmModelState = 'absent' | 'downloading' | 'ready' | 'loading' | 'error';
 
 let module: LLMModule | null = null;
+// Transient, in-memory RAM state only: 'ready' = loaded in memory this session,
+// 'downloading'/'loading' = in flight, 'error' = last op failed, 'absent' = not
+// in RAM. It does NOT tell you whether the files are on disk — that's the
+// persistent `aiModelDownloaded` flag, read via isModelDownloaded(db). The UI
+// (Task 5) combines the two: not-downloaded → show Download; downloaded → show
+// the AI toggle + a Delete button.
 let state: LlmModelState = 'absent';
 let progress = 0;
-// NOTE: executorch doesn't expose a clean "are the model files already cached
-// on disk" check from this module's surface, so this in-memory flag is a
-// best-effort proxy: true once `downloadModel` has succeeded in this process.
-// It does NOT survive an app restart — after a cold start we don't know
-// whether files are cached without attempting a load. `ensureLoaded` handles
-// that by just attempting the load and treating success as "was cached".
-let hasDownloaded = false;
 
+/** In-memory RAM state. See LlmModelState / the `state` comment above. */
 export function getModelState(): LlmModelState {
   return state;
 }
@@ -53,11 +62,22 @@ export function getDownloadProgress(): number {
 }
 
 /**
- * `fromModelName` both downloads (if not cached) AND loads the model into
- * memory — there is no separate "load" step. Resolves once the instance is
- * ready to `generate()`.
+ * Persistent "are the model files on disk" flag — survives app restarts, unlike
+ * getModelState(). The UI uses this to decide Download-vs-toggle.
  */
-export async function downloadModel(onProgress?: (p: number) => void): Promise<void> {
+export async function isModelDownloaded(db: Db): Promise<boolean> {
+  if (!llmSupported) return false;
+  return (await getSetting(db, DOWNLOADED_KEY)) === 'true';
+}
+
+/**
+ * Downloads the model files to disk AND loads them into RAM — this is the ONLY
+ * function that hits the network. `fromModelName` both downloads (if not
+ * cached) and loads; there is no separate load step. On success it persists the
+ * `aiModelDownloaded` flag so ensureLoaded() can cheaply reload from cache after
+ * a restart without ever re-downloading.
+ */
+export async function downloadModel(db: Db, onProgress?: (p: number) => void): Promise<void> {
   if (!llmSupported) return;
   state = 'downloading';
   progress = 0;
@@ -68,8 +88,8 @@ export async function downloadModel(onProgress?: (p: number) => void): Promise<v
     });
     instance.configure({ generationConfig: { temperature: 0 } });
     module = instance;
-    hasDownloaded = true;
     state = 'ready';
+    await setSetting(db, DOWNLOADED_KEY, 'true');
   } catch (error) {
     state = 'error';
     throw error;
@@ -77,55 +97,84 @@ export async function downloadModel(onProgress?: (p: number) => void): Promise<v
 }
 
 /**
- * Ensures the model is loaded into RAM, reusing an already-cached download if
- * one exists. `fromModelName` skips the network round-trip when the model
- * files are already on disk, so calling it again here is cheap once
- * `downloadModel` has run at least once (this session, or — best-effort —
- * whenever the files happen to already be cached from a previous session).
+ * Loads the model into RAM if it isn't already, WITHOUT ever downloading. If the
+ * instance is already in memory, returns true immediately. Otherwise it only
+ * proceeds when the persistent `aiModelDownloaded` flag is set — meaning the
+ * files are on disk — so calling `fromModelName` here is a fast local load with
+ * no network round-trip. If the flag isn't set, returns false rather than
+ * kicking off a surprise multi-hundred-MB download (that's downloadModel's job).
  */
-export async function ensureLoaded(): Promise<boolean> {
+export async function ensureLoaded(db: Db): Promise<boolean> {
   if (!llmSupported) return false;
   if (module) return true;
+  if (!(await isModelDownloaded(db))) return false;
   state = 'loading';
   try {
+    // Files are cached (flag is set) → this resolves from disk, no download.
     const instance = await LLMModule.fromModelName(QWEN3_1_7B_QUANTIZED, (p) => {
       progress = p;
     });
     instance.configure({ generationConfig: { temperature: 0 } });
     module = instance;
-    hasDownloaded = true;
     state = 'ready';
     return true;
   } catch {
-    state = hasDownloaded ? 'error' : 'absent';
+    state = 'error';
     return false;
   }
 }
 
 /**
- * Frees model RAM. Model FILES stay cached on disk (executorch's resource
- * fetcher owns that cache) — only the in-memory instance is released. Safe to
- * call on app background; do not call mid-generation.
+ * Frees model RAM. Model FILES stay cached on disk and the persistent
+ * `aiModelDownloaded` flag is untouched — only the in-memory instance is
+ * released, so ensureLoaded() can relight it from cache later. Safe to call on
+ * app background; do not call mid-generation.
  */
 export function unload(): void {
   if (module) {
     module.delete();
     module = null;
   }
-  // Model files remain cached on disk; only the in-RAM instance is gone.
-  // getModelState() reflects RAM residency, so this goes back to 'absent'
-  // even though `ensureLoaded` can cheaply relight it from the disk cache.
   state = 'absent';
 }
 
+/**
+ * Fully removes the model: frees RAM, deletes the cached files from disk, and
+ * clears the persistent flag so isModelDownloaded() reads false again. Used by
+ * the Delete button in settings to reclaim storage.
+ *
+ * File deletion uses ExpoResourceFetcher.deleteResources(...sources), which
+ * (per BaseResourceFetcherClass) "Delete[s] the local files corresponding to
+ * the given sources" and is "a no-op for sources whose file does not exist".
+ * We pass the three ResourceSources fromModelName was given.
+ */
+export async function deleteModel(db: Db): Promise<void> {
+  if (!llmSupported) return;
+  unload();
+  try {
+    await ExpoResourceFetcher.deleteResources(
+      QWEN3_1_7B_QUANTIZED.modelSource,
+      QWEN3_1_7B_QUANTIZED.tokenizerSource,
+      QWEN3_1_7B_QUANTIZED.tokenizerConfigSource,
+    );
+  } finally {
+    // Even if file deletion fails, flip the flag so AI is disabled and the UI
+    // stops offering it; any files that survived are harmless dead weight.
+    await setSetting(db, DOWNLOADED_KEY, 'false');
+  }
+}
+
 export async function classify(
+  db: Db,
   text: string,
   amountCentavos: number,
 ): Promise<LlmClassification | null> {
   if (!llmSupported) return null;
-  const loaded = await ensureLoaded();
-  if (!loaded || !module) return null;
+  // ensureLoaded never downloads, so classify() can never surprise-download:
+  // if the model isn't on disk it returns false here and we fall back to null.
+  if (!(await ensureLoaded(db))) return null;
   const activeModule = module;
+  if (!activeModule) return null;
   // `generate` is stateless — each call is a fresh one-shot completion, no
   // conversation history is kept between calls.
   return classifyWithLlm(
@@ -135,7 +184,16 @@ export async function classify(
   );
 }
 
-/** Enabled by user preference AND the model actually being loaded in RAM. */
+/**
+ * Enabled by user preference AND the model files being downloaded. Deliberately
+ * does NOT check the in-memory `module` — the persistent flag keeps this true
+ * across restarts, so a cold-start classify() (which loads from cache on its
+ * first ensureLoaded call) still works.
+ */
 export async function llmEnabled(db: Db): Promise<boolean> {
-  return llmSupported && (await getSetting(db, 'aiParsingEnabled')) === 'true' && module !== null;
+  return (
+    llmSupported &&
+    (await getSetting(db, 'aiParsingEnabled')) === 'true' &&
+    (await getSetting(db, DOWNLOADED_KEY)) === 'true'
+  );
 }
