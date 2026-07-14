@@ -126,6 +126,12 @@ export interface IngestSummary {
   skipped: number;
 }
 
+/** Optional LLM fallback; called only for medium-confidence items. */
+export type LlmClassifier = (
+  text: string,
+  amountCentavos: number,
+) => Promise<{ direction: 'expense' | 'income'; merchant: string | null } | null>;
+
 /**
  * Sources for a package: a keyword source claims the notification only when
  * the keyword appears in title+text; keyword-less source is the fallback.
@@ -166,6 +172,7 @@ export async function ingestCaptured(
   db: Db,
   captured: CapturedNotification[],
   nowIso: string,
+  llmClassify?: LlmClassifier,
 ): Promise<IngestSummary> {
   const summary: IngestSummary = { committed: 0, queued: 0, discarded: 0, skipped: 0 };
   const allSources: NotificationSource[] = await db
@@ -211,8 +218,29 @@ export async function ingestCaptured(
       await db.insert(pendingNotifications).values({ ...base, status: 'committed' });
       summary.committed += 1;
     } else {
-      await db.insert(pendingNotifications).values({ ...base, status: 'pending' });
-      summary.queued += 1;
+      let upgraded = false;
+      if (llmClassify) {
+        try {
+          const result = await llmClassify(item.text, parsed.amountCentavos!);
+          if (result) {
+            const mergedRow = {
+              ...base,
+              parsedType: result.direction,
+              parsedMerchant: base.parsedMerchant ?? result.merchant,
+            };
+            await insertParsedTransaction(db, source, mergedRow, rules);
+            await db.insert(pendingNotifications).values({ ...mergedRow, status: 'committed' });
+            summary.committed += 1;
+            upgraded = true;
+          }
+        } catch {
+          // LLM fallback is best-effort; fall through to the pending queue.
+        }
+      }
+      if (!upgraded) {
+        await db.insert(pendingNotifications).values({ ...base, status: 'pending' });
+        summary.queued += 1;
+      }
     }
   }
   return summary;

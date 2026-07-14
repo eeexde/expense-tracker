@@ -167,6 +167,76 @@ describe('ingestCaptured', () => {
   });
 });
 
+describe('LLM fallback on medium confidence', () => {
+  const NOW = '2026-07-13T08:00:00.000Z';
+  const mediumEntry = {
+    packageName: 'com.globe.gcash.android',
+    title: null,
+    text: 'Transaction alert: PHP 99.00 JOLLIBEE ref 555',
+    postedAt: NOW,
+    key: 'llm1',
+  };
+
+  it('classifier direction upgrades a medium item to committed', async () => {
+    const db = createTestDb();
+    await setup(db);
+    const classify = jest.fn().mockResolvedValue({ direction: 'income', merchant: 'JOLLIBEE' });
+    const summary = await ingestCaptured(db, [mediumEntry], NOW, classify);
+    expect(classify).toHaveBeenCalledWith(mediumEntry.text, 9900);
+    expect(summary.committed).toBe(1);
+    expect(summary.queued).toBe(0);
+    const [txn] = await db.select().from(transactions);
+    expect(txn.type).toBe('income');
+    expect(txn.note).toBe('JOLLIBEE');
+    const [row] = await db.select().from(pendingNotifications);
+    expect(row.status).toBe('committed');
+  });
+
+  it('classifier null keeps the item in the inbox', async () => {
+    const db = createTestDb();
+    await setup(db);
+    const classify = jest.fn().mockResolvedValue(null);
+    const summary = await ingestCaptured(db, [mediumEntry], NOW, classify);
+    expect(summary.queued).toBe(1);
+    expect(await db.select().from(transactions)).toHaveLength(0);
+  });
+
+  it('classifier is not called for high or no-amount items', async () => {
+    const db = createTestDb();
+    await setup(db);
+    const classify = jest.fn();
+    await ingestCaptured(
+      db,
+      [
+        { ...mediumEntry, key: 'llm2', text: 'You have sent PHP 10.00 to X.' },
+        { ...mediumEntry, key: 'llm3', text: 'Promo! 20% off this weekend' },
+      ],
+      NOW,
+      classify,
+    );
+    expect(classify).not.toHaveBeenCalled();
+  });
+
+  it('classifier throwing does not break ingest — item queues', async () => {
+    const db = createTestDb();
+    await setup(db);
+    const classify = jest.fn().mockRejectedValue(new Error('native crash'));
+    const summary = await ingestCaptured(db, [mediumEntry], NOW, classify);
+    expect(summary.queued).toBe(1);
+  });
+
+  it('uses the LLM merchant only when regex found none', async () => {
+    const db = createTestDb();
+    await setup(db);
+    // regex finds no merchant in this text but does find amount → medium
+    const classify = jest.fn().mockResolvedValue({ direction: 'expense', merchant: 'LLM STORE' });
+    await ingestCaptured(db, [{ ...mediumEntry, key: 'llm4', text: 'Alert: PHP 42.00 processed' }], NOW, classify);
+    const [txn] = await db.select().from(transactions);
+    expect(txn.type).toBe('expense');
+    expect(txn.note).toBe('LLM STORE');
+  });
+});
+
 describe('matchCategory', () => {
   it('lower priority wins; case-insensitive contains', () => {
     const rules = [
