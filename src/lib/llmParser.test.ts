@@ -29,6 +29,12 @@ describe('parseLlmReply', () => {
     expect(parseLlmReply('{"merchant":"X"}')).toBeNull();
   });
 
+  it('picks the real object when the model also echoes the schema', () => {
+    const reply =
+      'Format: {"direction":"expense"|"income"|"unknown","merchant":string|null}\n{"direction":"income","merchant":"BPI"}';
+    expect(parseLlmReply(reply)).toEqual({ direction: 'income', merchant: 'BPI' });
+  });
+
   it('treats direction "unknown" as null result', () => {
     expect(parseLlmReply('{"direction":"unknown","merchant":null}')).toBeNull();
   });
