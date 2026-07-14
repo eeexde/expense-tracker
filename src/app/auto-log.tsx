@@ -94,16 +94,27 @@ export default function AutoLogScreen() {
   const [aiDownloading, setAiDownloading] = useState(false);
   const [aiProgress, setAiProgress] = useState(0);
 
-  const refreshAiState = useCallback(() => {
-    if (!llmSupported) return;
-    isModelDownloaded(db).then(setAiDownloaded);
-    getSetting(db, 'aiParsingEnabled').then((value) => setAiEnabled(value === 'true'));
-  }, [db]);
+  const loadAiState = useCallback(
+    (isCancelled: () => boolean) => {
+      if (!llmSupported) return;
+      isModelDownloaded(db).then((v) => {
+        if (!isCancelled()) setAiDownloaded(v);
+      });
+      getSetting(db, 'aiParsingEnabled').then((value) => {
+        if (!isCancelled()) setAiEnabled(value === 'true');
+      });
+    },
+    [db],
+  );
 
   useFocusEffect(
     useCallback(() => {
-      refreshAiState();
-    }, [refreshAiState]),
+      let cancelled = false;
+      loadAiState(() => cancelled);
+      return () => {
+        cancelled = true;
+      };
+    }, [loadAiState]),
   );
 
   const openSourceModal = () => {
@@ -210,9 +221,13 @@ export default function AutoLogScreen() {
   };
 
   const handleToggleAi = async (next: boolean) => {
-    await setSetting(db, 'aiParsingEnabled', next ? 'true' : 'false');
-    setAiEnabled(next);
-    refresh();
+    try {
+      await setSetting(db, 'aiParsingEnabled', next ? 'true' : 'false');
+      setAiEnabled(next);
+      refresh();
+    } catch (e) {
+      Alert.alert('Could not save', e instanceof Error ? e.message : 'Could not update setting.');
+    }
   };
 
   const confirmDeleteModel = () => {
@@ -224,6 +239,7 @@ export default function AutoLogScreen() {
         onPress: async () => {
           try {
             await deleteModel(db);
+            await setSetting(db, 'aiParsingEnabled', 'false');
             setAiDownloaded(false);
             setAiEnabled(false);
             refresh();
