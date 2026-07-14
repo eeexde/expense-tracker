@@ -7,6 +7,7 @@ import React, {
   useState,
 } from 'react';
 import { AppState } from 'react-native';
+import { unload as unloadLlm } from '@/lib/llmController';
 import { notifyPostedDues } from '@/lib/notifications';
 import { subscribeLiveCapture, syncNotifications } from '@/lib/notificationSync';
 import { PostedSummary, runCatchUp } from '@/lib/recurringEngine';
@@ -70,6 +71,8 @@ export function DbProvider({ children }: { children: React.ReactNode }) {
             if (s && (s.committed > 0 || s.queued > 0)) setVersion((v) => v + 1);
           })
           .catch(() => {});
+      } else if (state === 'background') {
+        unloadLlm();
       }
     });
     return () => {

@@ -1,5 +1,6 @@
 import { AppDb } from '@/db/client';
 import { expirePending, ingestCaptured, watchedPackages } from '@/db/notificationRepo';
+import { classify, llmEnabled } from './llmController';
 import {
   addCapturedListener,
   CapturedEntry,
@@ -40,7 +41,10 @@ export async function syncNotifications(db: AppDb): Promise<SyncSummary | null> 
     // CapturedEntry is kept structurally identical to CapturedNotification.
     const captured = drainBuffer();
     const nowIso = new Date().toISOString();
-    const ingest = await ingestCaptured(db, captured, nowIso);
+    const llmClassify = (await llmEnabled(db))
+      ? (text: string, amt: number) => classify(db, text, amt)
+      : undefined;
+    const ingest = await ingestCaptured(db, captured, nowIso, llmClassify);
     const expiry = await expirePending(db, nowIso);
     return {
       committed: ingest.committed + expiry.committed,
@@ -53,7 +57,12 @@ export async function syncNotifications(db: AppDb): Promise<SyncSummary | null> 
 export function subscribeLiveCapture(db: AppDb, onChange: () => void): () => void {
   if (!isAvailable) return () => {};
   const sub = addCapturedListener((entry: CapturedEntry) => {
-    enqueue(() => ingestCaptured(db, [entry], new Date().toISOString()))
+    enqueue(async () => {
+      const llmClassify = (await llmEnabled(db))
+        ? (text: string, amt: number) => classify(db, text, amt)
+        : undefined;
+      return ingestCaptured(db, [entry], new Date().toISOString(), llmClassify);
+    })
       .then(() => onChange())
       .catch(() => {
         // best-effort, like every other ingest call site
