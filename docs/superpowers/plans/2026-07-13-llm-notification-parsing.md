@@ -8,6 +8,18 @@
 
 **Tech Stack:** react-native-executorch 0.9.x (+ react-native-executorch-expo-resource-fetcher, expo-asset; expo-file-system already installed), drizzle migration 0005, jest `logic` project for pure/db tests.
 
+## Spike findings (Task 1, verified against installed react-native-executorch 0.9.2)
+
+- **Imperative API confirmed.** `import { LLMModule, QWEN3_1_7B_QUANTIZED, initExecutorch } from 'react-native-executorch'`.
+  - `LLMModule.fromModelName(namedSources, onDownloadProgress?, tokenCallback?, messageHistoryCallback?): Promise<LLMModule>` — pass the `QWEN3_1_7B_QUANTIZED` constant directly as `namedSources` (its shape is exactly `{ modelName, modelSource, tokenizerSource, tokenizerConfigSource, generationConfig }`). `onDownloadProgress` is `(0..1) => void`.
+  - `instance.generate(messages: {role,content}[]): Promise<string>` — **stateless**, does not retain context between calls → ideal for one-shot classification; build a fresh `[{role:'system',...},{role:'user',...}]` each time. This is the `runInference` the llmParser wants (wrap: `(prompt) => instance.generate([{role:'user',content:prompt}])`).
+  - `instance.configure({ generationConfig: { temperature: 0 } })` for deterministic output.
+  - `instance.delete()` frees model RAM (cannot call mid-generation; interrupt first). Use for unload-on-background.
+  - No `.pte` bundling — model + tokenizer stream from HuggingFace URLs in the constant at first load; download progress via the callback.
+- **Expo wiring:** call `initExecutorch({ resourceFetcher: ExpoResourceFetcher })` ONCE at startup (import `ExpoResourceFetcher` from `react-native-executorch-expo-resource-fetcher`). Put it at module top-level in `llmController.ts` (runs on first import) or in the root `_layout.tsx`. `expo-file-system` + `expo-asset` are deps (installed).
+- **No Expo config plugin** needed (autolinked native module). RN peer `*`. New-arch already on (RN 0.86). Requires **Android 13+** at runtime → `llmSupported = Platform.OS==='android' && Number(Platform.Version) >= 33`.
+- Toolchain after install: `tsc` clean, 127 tests pass, `expo export --platform android` bundles. (Real native compile still first happens on device/EAS in Task 6.)
+
 **Conventions (repo law — see CLAUDE.md):**
 - Money integer centavos; `type Db = any` in repos; tests beside code; run `npm test -- --testPathIgnorePatterns=".claude"` from repo root.
 - NO test files under `src/app/` (breaks Metro bundle on EAS). Screen tests → `src/__tests__/`.
