@@ -7,6 +7,7 @@ import m0002 from './0002_luxuriant_silhouette.sql';
 import m0003 from './0003_lazy_molecule_man.sql';
 import m0004 from './0004_damp_lady_ursula.sql';
 import m0005 from './0005_open_kang.sql';
+import m0006 from './0006_striped_trish_tilby.sql';
 
   export default {
     journal,
@@ -16,7 +17,8 @@ m0001,
 m0002,
 m0003,
 m0004,
-m0005
+m0005,
+m0006
     }
   }
   

@@ -5,7 +5,7 @@ import { BarChart, PieChart } from 'react-native-gifted-charts';
 import { Icon } from '@/components/Icon';
 import { useAppQuery } from '@/db/hooks';
 import { allBucketBalances, totalMoney } from '@/db/repo';
-import { expensesByCategory, monthSummary, sixMonthTrend } from '@/db/statsRepo';
+import { expensesByCategory, monthlyCommitments, monthSummary, sixMonthTrend } from '@/db/statsRepo';
 import { utangTotals } from '@/db/utangRepo';
 import { formatPeso } from '@/lib/money';
 import { monthLabel, monthShort, shiftMonth } from '@/lib/months';
@@ -31,6 +31,7 @@ export default function StatsScreen() {
   const trend = useAppQuery((db) => sixMonthTrend(db, month), [month]);
   const balances = useAppQuery((db) => allBucketBalances(db));
   const total = useAppQuery((db) => totalMoney(db));
+  const commitments = useAppQuery((db) => monthlyCommitments(db));
   const utang = useAppQuery((db) => utangTotals(db));
 
   // Top 5 categories keep their fixed-order slot color; the rest fold into "Others".
@@ -180,6 +181,34 @@ export default function StatsScreen() {
             <Text style={[styles.categoryName, { fontFamily: fonts.bodyBold }]}>Total</Text>
             <Text style={[styles.categoryAmount, { color: colors.gold }]}>
               {total === undefined ? '…' : formatPeso(total)}
+            </Text>
+          </View>
+        </View>
+
+        <Text style={styles.sectionTitle}>Monthly commitments</Text>
+        <View style={styles.card}>
+          <View style={styles.categoryRow}>
+            <View style={styles.bucketName}>
+              <Icon name="repeat" size={15} color={colors.inkDim} />
+              <Text style={styles.categoryName}>Recurring</Text>
+            </View>
+            <Text style={styles.categoryAmount}>
+              {commitments === undefined ? '…' : formatPeso(commitments.recurring)}
+            </Text>
+          </View>
+          <View style={styles.categoryRow}>
+            <View style={styles.bucketName}>
+              <Icon name="receipt" size={15} color={colors.inkDim} />
+              <Text style={styles.categoryName}>Installments</Text>
+            </View>
+            <Text style={styles.categoryAmount}>
+              {commitments === undefined ? '…' : formatPeso(commitments.installments)}
+            </Text>
+          </View>
+          <View style={[styles.categoryRow, styles.totalRow]}>
+            <Text style={[styles.categoryName, { fontFamily: fonts.bodyBold }]}>Total per month</Text>
+            <Text style={[styles.categoryAmount, { color: colors.expense }]}>
+              {commitments === undefined ? '…' : formatPeso(commitments.total)}
             </Text>
           </View>
         </View>

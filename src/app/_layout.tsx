@@ -51,6 +51,9 @@ export default function RootLayout() {
         <Stack.Screen name="manage-buckets" options={{ presentation: 'modal' }} />
         <Stack.Screen name="add-bucket" options={{ presentation: 'modal' }} />
         <Stack.Screen name="edit-bucket" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="manage-categories" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="add-category" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="edit-category" options={{ presentation: 'modal' }} />
         <Stack.Screen name="settings" options={{ presentation: 'modal' }} />
         <Stack.Screen name="auto-log" options={{ presentation: 'modal' }} />
         <Stack.Screen name="notification-inbox" options={{ presentation: 'modal' }} />

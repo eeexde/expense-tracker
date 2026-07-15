@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import { Text } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { RecurringForm, RecurringFormValues } from '@/components/RecurringForm';
 import { formStyles } from '@/components/form';
 import { useDb } from '@/db/DbProvider';
@@ -18,7 +18,10 @@ export default function AddRecurringScreen() {
     db.select().from(bucketsTable).where(eq(bucketsTable.archived, false)),
   );
   const categories = useAppQuery((db) =>
-    db.select().from(categoriesTable).where(eq(categoriesTable.type, 'expense')),
+    db
+      .select()
+      .from(categoriesTable)
+      .where(and(eq(categoriesTable.type, 'expense'), eq(categoriesTable.archived, false))),
   );
 
   const save = async (values: RecurringFormValues) => {

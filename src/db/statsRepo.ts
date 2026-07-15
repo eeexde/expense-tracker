@@ -1,7 +1,37 @@
 import { and, eq, like, sql } from 'drizzle-orm';
-import { categories, transactions } from './schema';
+import { categories, installments, recurring, transactions } from './schema';
+import { installmentRemaining } from './installmentRepo';
 
 type Db = any;
+
+export interface CommitmentTotals {
+  recurring: number;
+  installments: number;
+  total: number;
+}
+
+/**
+ * Monthly cost of standing obligations: active recurring rules (weekly rules
+ * normalized to a monthly figure) plus the monthly due of installment plans
+ * that still carry a balance.
+ */
+export async function monthlyCommitments(db: Db): Promise<CommitmentTotals> {
+  const rules = await db.select().from(recurring).where(eq(recurring.active, true));
+  const recurringTotal = rules.reduce(
+    (acc: number, r: { amount: number; frequency: 'monthly' | 'weekly' }) =>
+      acc + (r.frequency === 'weekly' ? Math.round((r.amount * 52) / 12) : r.amount),
+    0,
+  );
+  const plans = await db.select().from(installments);
+  const installmentTotal = plans
+    .filter((p: { totalAmount: number; amountPaid: number }) => installmentRemaining(p) > 0)
+    .reduce((acc: number, p: { monthlyDue: number }) => acc + p.monthlyDue, 0);
+  return {
+    recurring: recurringTotal,
+    installments: installmentTotal,
+    total: recurringTotal + installmentTotal,
+  };
+}
 
 export interface MonthSummary {
   income: number;

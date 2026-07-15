@@ -176,6 +176,25 @@ const GLYPHS: Record<string, ReactElement> = {
 
 export type IconName = keyof typeof GLYPHS;
 
+/** Keys offered in the category icon picker. */
+export const CATEGORY_ICON_OPTIONS: IconName[] = [
+  'tag',
+  'signal',
+  'bus',
+  'zap',
+  'droplet',
+  'cart',
+  'dining',
+  'box',
+  'globe',
+  'home',
+  'receipt',
+  'users',
+  'folder',
+  'laptop',
+  'wrench',
+];
+
 /** Keys offered in the bucket icon picker. */
 export const BUCKET_ICON_OPTIONS: IconName[] = [
   'wallet',

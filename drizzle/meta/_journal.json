@@ -43,6 +43,13 @@
       "when": 1784069409542,
       "tag": "0005_open_kang",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1784145463759,
+      "tag": "0006_striped_trish_tilby",
+      "breakpoints": true
     }
   ]
 }

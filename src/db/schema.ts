@@ -21,6 +21,8 @@ export const categories = sqliteTable('categories', {
   name: text('name').notNull(),
   icon: text('icon').notNull().default('🏷️'),
   type: text('type', { enum: ['expense', 'income'] }).notNull(),
+  /** Categories with history are archived, not deleted — labels stay intact. */
+  archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
 });
 
 export const transactions = sqliteTable(

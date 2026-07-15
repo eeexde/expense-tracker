@@ -136,6 +136,12 @@ export default function SettingsScreen() {
 
         {status && <Text style={styles.status}>{status}</Text>}
 
+        <Text style={styles.sectionTitle}>Organize</Text>
+        <Pressable style={styles.action} onPress={() => router.push('/manage-categories')}>
+          <Text style={styles.actionTitle}>Manage categories</Text>
+          <Text style={styles.actionSub}>Add, rename, re-icon, or archive expense and income categories.</Text>
+        </Pressable>
+
         {Platform.OS === 'android' && (
           <>
             <Text style={styles.sectionTitle}>Automation</Text>

@@ -25,7 +25,9 @@ export default function AddTransactionScreen() {
   const buckets = useAppQuery((db) =>
     db.select().from(bucketsTable).where(eq(bucketsTable.archived, false)),
   );
-  const categories = useAppQuery((db) => db.select().from(categoriesTable));
+  const categories = useAppQuery((db) =>
+    db.select().from(categoriesTable).where(eq(categoriesTable.archived, false)),
+  );
   const openUtang = useAppQuery((db) => listOpenUtang(db));
   const openInstallments = useAppQuery((db) => listOpenInstallments(db));
 
