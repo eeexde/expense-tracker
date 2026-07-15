@@ -10,6 +10,7 @@ import {
   ingestCaptured,
   listPending,
   matchCategory,
+  notifDedupKey,
   updateSource,
 } from './notificationRepo';
 
@@ -23,6 +24,66 @@ async function setup(db: TestDb) {
 }
 
 const NOW = '2026-07-10T08:00:00.000Z';
+
+describe('notifDedupKey', () => {
+  it('is identical for identical content regardless of native key/postTime', () => {
+    const a = notifDedupKey('com.bank', 'BPI', 'You paid PHP 10.00');
+    const b = notifDedupKey('com.bank', 'BPI', 'You paid PHP 10.00');
+    expect(a).toBe(b);
+  });
+
+  it('differs when package, title, or text differ', () => {
+    const base = notifDedupKey('com.bank', 'BPI', 'You paid PHP 10.00');
+    expect(notifDedupKey('com.other', 'BPI', 'You paid PHP 10.00')).not.toBe(base);
+    expect(notifDedupKey('com.bank', 'BDO', 'You paid PHP 10.00')).not.toBe(base);
+    expect(notifDedupKey('com.bank', 'BPI', 'You paid PHP 20.00')).not.toBe(base);
+  });
+
+  it('handles a null title without colliding with an empty-title message', () => {
+    expect(notifDedupKey('com.bank', null, 'text')).not.toBe(
+      notifDedupKey('com.bank', '', 'other text'),
+    );
+    expect(() => notifDedupKey('com.bank', null, 'text')).not.toThrow();
+  });
+});
+
+describe('content-based dedup (app reposts / notification updates)', () => {
+  it('does not double-log when the app reposts the same notification with a new native key', async () => {
+    const db = createTestDb();
+    await setup(db);
+    const text = 'You have sent PHP 10.00 to X.';
+    const first = {
+      packageName: 'com.globe.gcash.android',
+      title: 'GCash',
+      text,
+      postedAt: NOW,
+      key: 'native-1#1000',
+    };
+    // Same email, Gmail-style repost: identical content, different native key + postTime.
+    const reposted = { ...first, key: 'native-1#2000', postedAt: '2026-07-10T08:00:05.000Z' };
+    const s1 = await ingestCaptured(db, [first], NOW);
+    const s2 = await ingestCaptured(db, [reposted], NOW);
+    expect(s1.committed).toBe(1);
+    expect(s2.committed).toBe(0);
+    expect(s2.skipped).toBe(1);
+    expect(await db.select().from(transactions)).toHaveLength(1);
+  });
+
+  it('still logs genuinely different notifications from the same app', async () => {
+    const db = createTestDb();
+    await setup(db);
+    const a = {
+      packageName: 'com.globe.gcash.android',
+      title: 'GCash',
+      text: 'You have sent PHP 10.00 to X.',
+      postedAt: NOW,
+      key: 'n1',
+    };
+    const b = { ...a, key: 'n2', text: 'You have sent PHP 20.00 to Y.' };
+    await ingestCaptured(db, [a, b], NOW);
+    expect(await db.select().from(transactions)).toHaveLength(2);
+  });
+});
 
 describe('ingestCaptured', () => {
   it('high confidence commits a transaction immediately', async () => {
@@ -46,7 +107,9 @@ describe('ingestCaptured', () => {
     expect(txns).toHaveLength(1);
     expect(txns[0].amount).toBe(15000);
     expect(txns[0].type).toBe('expense');
-    expect(txns[0].sourceNotifKey).toBe('k1');
+    expect(txns[0].sourceNotifKey).toBe(
+      notifDedupKey('com.globe.gcash.android', 'GCash', 'You have sent PHP 150.00 to JOLLIBEE via GCash.'),
+    );
     expect(txns[0].date).toBe('2026-07-10');
     const rows = await db.select().from(pendingNotifications);
     expect(rows[0].status).toBe('committed');
@@ -275,7 +338,9 @@ describe('inbox actions + expiry', () => {
     const [txn] = await db.select().from(transactions);
     expect(txn.amount).toBe(12345);
     expect(txn.note).toBe('edited');
-    expect(txn.sourceNotifKey).toBe('p1');
+    expect(txn.sourceNotifKey).toBe(
+      notifDedupKey('com.globe.gcash.android', null, 'Transaction alert: PHP 99.00 ref p1'),
+    );
     expect(await listPending(db)).toHaveLength(0);
   });
 
@@ -299,7 +364,9 @@ describe('inbox actions + expiry', () => {
     expect(await listPending(db)).toHaveLength(1);
     const txns = await db.select().from(transactions);
     expect(txns).toHaveLength(1);
-    expect(txns[0].sourceNotifKey).toBe('old');
+    expect(txns[0].sourceNotifKey).toBe(
+      notifDedupKey('com.globe.gcash.android', null, 'Transaction alert: PHP 99.00 ref old'),
+    );
   });
 
   it('commitPending on a non-pending id rejects', async () => {

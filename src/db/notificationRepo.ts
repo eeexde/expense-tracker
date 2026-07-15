@@ -20,7 +20,22 @@ export interface CapturedNotification {
   title: string | null;
   text: string;
   postedAt: string; // ISO UTC from the Kotlin side
+  /** Native identity ("sbn.key#postTime"); NOT used for dedup — see notifDedupKey. */
   key: string;
+}
+
+/**
+ * Dedup identity derived from the notification's CONTENT, not the native
+ * StatusBarNotification key. Android bumps sbn.postTime every time an app
+ * updates/reposts a notification (Gmail does this constantly), so keying on the
+ * native id double-logs the same alert. Keying on package+title+text means a
+ * repost of the same content dedups, while genuinely different transactions
+ * (different amount/merchant/ref in the text) still log. JSON.stringify gives a
+ * canonical, collision-proof encoding of the three fields (a null title is
+ * distinct from an empty one), using only plain ASCII.
+ */
+export function notifDedupKey(packageName: string, title: string | null, text: string): string {
+  return JSON.stringify([packageName, title ?? undefined, text]);
 }
 
 // ---------- sources ----------
@@ -189,7 +204,10 @@ export async function ingestCaptured(
       summary.skipped += 1;
       continue;
     }
-    if (await keyExists(db, item.key)) {
+    // Dedup on content, not the native key — an app updating its notification
+    // reposts with a new native key/postTime but identical content.
+    const dedupKey = notifDedupKey(item.packageName, item.title, item.text);
+    if (await keyExists(db, dedupKey)) {
       summary.skipped += 1;
       continue;
     }
@@ -202,7 +220,7 @@ export async function ingestCaptured(
       parsedAmount: parsed.amountCentavos,
       parsedMerchant: parsed.merchant,
       parsedType: parsed.direction,
-      notifKey: item.key,
+      notifKey: dedupKey,
       postedAt: item.postedAt,
     };
 
