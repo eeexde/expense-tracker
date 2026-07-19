@@ -47,7 +47,7 @@ export default function ScanReceiptScreen() {
     try {
       const photo = await cameraRef.current.takePictureAsync();
       await processImage(photo.uri);
-    } catch (e) {
+    } catch {
       setError('Could not read the receipt. Try again.');
       setBusy(false);
     }
@@ -67,7 +67,7 @@ export default function ScanReceiptScreen() {
         return;
       }
       await processImage(result.assets[0].uri);
-    } catch (e) {
+    } catch {
       setError('Could not read that image. Try another one.');
       setBusy(false);
     }

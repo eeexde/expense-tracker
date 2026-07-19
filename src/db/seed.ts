@@ -39,7 +39,7 @@ export const PRESET_INCOME_CATEGORIES = [
 ] as const;
 
 /** Insert presets only when tables are empty. Safe to run every boot. */
-export async function seedIfEmpty(db: any): Promise<void> {
+export async function seedIfEmpty(db: AnyDb): Promise<void> {
   const existingBuckets = await db.select().from(buckets);
   if (existingBuckets.length === 0) {
     await db.insert(buckets).values(PRESET_BUCKETS.map((b) => ({ ...b, startingBalance: 0 })));

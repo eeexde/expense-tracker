@@ -1,6 +1,10 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { buckets, categories, installments, transactions } from '@/db/schema';
 import { createTestDb, TestDb } from '@/db/testDb';
+// Import ordering is irrelevant to mocking: babel-plugin-jest-hoist lifts the
+// jest.mock() calls below above all imports, so this screen's transitive
+// imports of expo-router / DbProvider are already mocked when it loads.
+import AddTransactionScreen from '@/app/add-transaction';
 
 const mockRouterBack = jest.fn();
 jest.mock('expo-router', () => ({
@@ -13,8 +17,6 @@ const mockRefresh = jest.fn();
 jest.mock('@/db/DbProvider', () => ({
   useDb: () => ({ db: mockTestDb, version: 0, refresh: mockRefresh, catchUp: null }),
 }));
-
-import AddTransactionScreen from '@/app/add-transaction';
 
 describe('add-transaction linked installment payment', () => {
   it('advances both the remaining balance and the months count', async () => {

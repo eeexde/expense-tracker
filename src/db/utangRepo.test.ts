@@ -1,4 +1,4 @@
-import { buckets, transactions } from './schema';
+import { buckets, transactions, utang as utangTable } from './schema';
 import { createTestDb, TestDb } from './testDb';
 import { addExpense, bucketBalance } from './repo';
 import {
@@ -11,7 +11,6 @@ import {
   utangRemaining,
   utangTotals,
 } from './utangRepo';
-import { utang as utangTable } from './schema';
 
 describe('utangRepo', () => {
   let db: TestDb;
