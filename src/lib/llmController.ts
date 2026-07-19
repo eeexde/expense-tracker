@@ -25,8 +25,8 @@ export const llmSupported = Platform.OS === 'android' && Number(Platform.Version
 /**
  * app_settings key persisting whether the ~1GB model files have been downloaded
  * to disk. This is the source of truth for "is the model available", NOT the
- * in-memory `module` var — the RAM instance resets on every app restart while
- * the cached files survive, so relying on `module` would silently disable
+ * in-memory `modelInstance` var — the RAM instance resets on every app restart
+ * while the cached files survive, so relying on `modelInstance` would disable
  * classification after a cold start until something re-primed it.
  */
 const DOWNLOADED_KEY = 'aiModelDownloaded';
@@ -42,7 +42,14 @@ if (llmSupported) {
 
 export type LlmModelState = 'absent' | 'downloading' | 'ready' | 'loading' | 'error';
 
-let module: LLMModule | null = null;
+let modelInstance: LLMModule | null = null;
+// Shared in-flight guards. Loading the ~1GB model twice concurrently (e.g. a
+// batch notification sync firing several classify() calls on a cold start)
+// would kick off two `fromModelName` loads and OOM the device. These hold the
+// single active operation so concurrent callers await the SAME promise instead
+// of starting a competing load/download. Both are cleared in a `finally`.
+let loadInFlight: Promise<boolean> | null = null;
+let downloadInFlight: Promise<void> | null = null;
 // Transient, in-memory RAM state only: 'ready' = loaded in memory this session,
 // 'downloading'/'loading' = in flight, 'error' = last op failed, 'absent' = not
 // in RAM. It does NOT tell you whether the files are on disk — that's the
@@ -79,20 +86,29 @@ export async function isModelDownloaded(db: Db): Promise<boolean> {
  */
 export async function downloadModel(db: Db, onProgress?: (p: number) => void): Promise<void> {
   if (!llmSupported) return;
-  state = 'downloading';
-  progress = 0;
+  // A second Download tap while one is running joins the same download.
+  if (downloadInFlight) return downloadInFlight;
+  downloadInFlight = (async () => {
+    state = 'downloading';
+    progress = 0;
+    try {
+      const instance = await LLMModule.fromModelName(QWEN3_1_7B_QUANTIZED, (p) => {
+        progress = p;
+        onProgress?.(p);
+      });
+      instance.configure({ generationConfig: { temperature: 0 } });
+      modelInstance = instance;
+      state = 'ready';
+      await setSetting(db, DOWNLOADED_KEY, 'true');
+    } catch (error) {
+      state = 'error';
+      throw error;
+    }
+  })();
   try {
-    const instance = await LLMModule.fromModelName(QWEN3_1_7B_QUANTIZED, (p) => {
-      progress = p;
-      onProgress?.(p);
-    });
-    instance.configure({ generationConfig: { temperature: 0 } });
-    module = instance;
-    state = 'ready';
-    await setSetting(db, DOWNLOADED_KEY, 'true');
-  } catch (error) {
-    state = 'error';
-    throw error;
+    return await downloadInFlight;
+  } finally {
+    downloadInFlight = null;
   }
 }
 
@@ -106,21 +122,32 @@ export async function downloadModel(db: Db, onProgress?: (p: number) => void): P
  */
 export async function ensureLoaded(db: Db): Promise<boolean> {
   if (!llmSupported) return false;
-  if (module) return true;
-  if (!(await isModelDownloaded(db))) return false;
-  state = 'loading';
+  if (modelInstance) return true;
+  // Join an in-flight load (from a concurrent classify() or a download that
+  // already loads into RAM) instead of starting a second one.
+  if (downloadInFlight) return downloadInFlight.then(() => modelInstance != null).catch(() => false);
+  if (loadInFlight) return loadInFlight;
+  loadInFlight = (async () => {
+    if (!(await isModelDownloaded(db))) return false;
+    state = 'loading';
+    try {
+      // Files are cached (flag is set) → this resolves from disk, no download.
+      const instance = await LLMModule.fromModelName(QWEN3_1_7B_QUANTIZED, (p) => {
+        progress = p;
+      });
+      instance.configure({ generationConfig: { temperature: 0 } });
+      modelInstance = instance;
+      state = 'ready';
+      return true;
+    } catch {
+      state = 'error';
+      return false;
+    }
+  })();
   try {
-    // Files are cached (flag is set) → this resolves from disk, no download.
-    const instance = await LLMModule.fromModelName(QWEN3_1_7B_QUANTIZED, (p) => {
-      progress = p;
-    });
-    instance.configure({ generationConfig: { temperature: 0 } });
-    module = instance;
-    state = 'ready';
-    return true;
-  } catch {
-    state = 'error';
-    return false;
+    return await loadInFlight;
+  } finally {
+    loadInFlight = null;
   }
 }
 
@@ -131,9 +158,9 @@ export async function ensureLoaded(db: Db): Promise<boolean> {
  * app background; do not call mid-generation.
  */
 export function unload(): void {
-  if (module) {
-    module.delete();
-    module = null;
+  if (modelInstance) {
+    modelInstance.delete();
+    modelInstance = null;
   }
   state = 'absent';
 }
@@ -173,7 +200,7 @@ export async function classify(
   // ensureLoaded never downloads, so classify() can never surprise-download:
   // if the model isn't on disk it returns false here and we fall back to null.
   if (!(await ensureLoaded(db))) return null;
-  const activeModule = module;
+  const activeModule = modelInstance;
   if (!activeModule) return null;
   // `generate` is stateless — each call is a fresh one-shot completion, no
   // conversation history is kept between calls.
@@ -186,7 +213,7 @@ export async function classify(
 
 /**
  * Enabled by user preference AND the model files being downloaded. Deliberately
- * does NOT check the in-memory `module` — the persistent flag keeps this true
+ * does NOT check the in-memory `modelInstance` — the persistent flag keeps it true
  * across restarts, so a cold-start classify() (which loads from cache on its
  * first ensureLoaded call) still works.
  */
