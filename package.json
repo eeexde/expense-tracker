@@ -6,8 +6,6 @@
     "@expo-google-fonts/fraunces": "^0.4.1",
     "@expo-google-fonts/manrope": "^0.4.2",
     "@expo/ui": "~57.0.3",
-    "@noble/ed25519": "^2.3.0",
-    "@noble/hashes": "^1.8.0",
     "@react-native-ml-kit/text-recognition": "^2.0.0",
     "drizzle-orm": "^0.45.2",
     "expo": "~57.0.2",
@@ -45,7 +43,8 @@
     "react-native-screens": "4.25.2",
     "react-native-svg": "15.15.4",
     "react-native-web": "~0.21.0",
-    "react-native-worklets": "0.10.0"
+    "react-native-worklets": "0.10.0",
+    "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
     "@testing-library/react-native": "^14.0.1",
