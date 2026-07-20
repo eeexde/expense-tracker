@@ -3,6 +3,17 @@
  * off-device with the private key (see scripts/mint-license.mjs). No network.
  */
 
+import nacl from 'tweetnacl';
+
+/** Author's public key: 32-byte Ed25519 public key, hex. Filled in after
+ * running scripts/gen-keypair.mjs. Empty until then → verify always fails. */
+export const PUBLIC_KEY_HEX = '';
+
+/** buyerIds whose licenses are no longer honored. Ships in the app bundle. */
+export const REVOKED_BUYER_IDS: string[] = [];
+
+export type VerifyResult = { ok: true; buyerId: string } | { ok: false; reason: string };
+
 export interface LicensePayload {
   v: number;
   buyerId: string;
@@ -57,4 +68,55 @@ export function canonicalPayload(p: LicensePayload): string {
   };
   if (p.expiresAt !== undefined) ordered.expiresAt = p.expiresAt;
   return JSON.stringify(ordered);
+}
+
+const SUPPORTED_VERSION = 1;
+
+function hexToBytes(hex: string): Uint8Array {
+  if (hex.length % 2 !== 0) throw new Error('odd-length hex');
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+
+export function verifyLicense(
+  license: string,
+  opts: { publicKeyHex?: string; revoked?: string[]; now?: string } = {},
+): VerifyResult {
+  const publicKeyHex = opts.publicKeyHex ?? PUBLIC_KEY_HEX;
+  const revoked = opts.revoked ?? REVOKED_BUYER_IDS;
+  if (!publicKeyHex) return { ok: false, reason: 'No public key configured' };
+  if (!license.startsWith('kur-')) return { ok: false, reason: 'Not a Kuripot license' };
+
+  let env: { p: LicensePayload; s: string };
+  try {
+    const json = new TextDecoder().decode(base64urlDecode(license.slice(4)));
+    env = JSON.parse(json);
+  } catch {
+    return { ok: false, reason: 'That key is not valid' };
+  }
+  const p = env?.p;
+  if (!p || typeof p.buyerId !== 'string' || typeof p.issuedAt !== 'string') {
+    return { ok: false, reason: 'That key is not valid' };
+  }
+  if (p.v !== SUPPORTED_VERSION) return { ok: false, reason: 'Unsupported license version' };
+
+  let valid = false;
+  try {
+    const msg = new TextEncoder().encode(canonicalPayload(p));
+    const sig = base64urlDecode(env.s);
+    valid = nacl.sign.detached.verify(msg, sig, hexToBytes(publicKeyHex));
+  } catch {
+    // nacl throws on wrong-length sig/key; treat as invalid.
+    return { ok: false, reason: 'That key is not valid' };
+  }
+  if (!valid) return { ok: false, reason: 'That key is not valid' };
+
+  if (revoked.includes(p.buyerId)) return { ok: false, reason: 'This license was revoked' };
+
+  if (p.expiresAt) {
+    const now = opts.now ?? new Date().toISOString().slice(0, 10);
+    if (p.expiresAt < now) return { ok: false, reason: 'This license has expired' };
+  }
+  return { ok: true, buyerId: p.buyerId };
 }
