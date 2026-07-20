@@ -41,3 +41,7 @@ example
 # generated native folders
 /ios
 /android
+
+# License signing — NEVER commit
+.keys/
+licenses.log
