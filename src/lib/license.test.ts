@@ -89,4 +89,29 @@ describe('verifyLicense', () => {
     const lic = mint({ v: 1, buyerId: 'buyer@x.com', issuedAt: '2026-07-20' });
     expect(verifyLicense(lic, { publicKeyHex: '' }).ok).toBe(false);
   });
+
+  describe('verifyLicense revocation + expiry', () => {
+    const opts = { publicKeyHex: testPubHex };
+
+    it('rejects a revoked buyerId', () => {
+      const lic = mint({ v: 1, buyerId: 'bad@x.com', issuedAt: '2026-07-20' });
+      expect(verifyLicense(lic, { ...opts, revoked: ['bad@x.com'] }))
+        .toEqual({ ok: false, reason: 'This license was revoked' });
+    });
+
+    it('honors expiresAt: past = invalid', () => {
+      const lic = mint({ v: 1, buyerId: 'b@x.com', issuedAt: '2026-01-01', expiresAt: '2026-06-01' });
+      expect(verifyLicense(lic, { ...opts, now: '2026-07-20' }).ok).toBe(false);
+    });
+
+    it('honors expiresAt: future = valid', () => {
+      const lic = mint({ v: 1, buyerId: 'b@x.com', issuedAt: '2026-01-01', expiresAt: '2027-01-01' });
+      expect(verifyLicense(lic, { ...opts, now: '2026-07-20' })).toEqual({ ok: true, buyerId: 'b@x.com' });
+    });
+
+    it('absent expiresAt = perpetual', () => {
+      const lic = mint({ v: 1, buyerId: 'b@x.com', issuedAt: '2026-01-01' });
+      expect(verifyLicense(lic, { ...opts, now: '2999-01-01' }).ok).toBe(true);
+    });
+  });
 });
