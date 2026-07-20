@@ -50,7 +50,7 @@ license string = base64url( JSON({ p, s }) )
 
 p (payload) = {
   v: 1,                       // format version
-  buyerId: string,            // buyer email or name; shown when unlocked
+  buyerId: string,            // buyer email; shown when unlocked
   issuedAt: "YYYY-MM-DD",
   expiresAt?: "YYYY-MM-DD"    // optional; absent = perpetual
 }
@@ -92,8 +92,10 @@ Embeds `@noble/ed25519` (pure JS, Expo-safe, no native module).
 
 ### 3. Gate UI — `src/components/LicenseGate.tsx`
 
-- Wraps the app tree inside `_layout.tsx`, positioned **below `ErrorBoundary` and
-  `DbProvider`** so DB is available and gate errors are caught.
+- Wraps the app tree inside `_layout.tsx` as `ErrorBoundary > LicenseGate >
+  DbProvider > App`: outside `DbProvider` so a locked install never opens the
+  local SQLite DB, still inside `ErrorBoundary` so gate errors are caught. The
+  gate needs only `expo-secure-store` + theme, not the DB.
 - On mount: `loadLicense()` → `verifyLicense()`.
   - valid → render `children` (the app)
   - missing / invalid / revoked → render lock screen
@@ -116,14 +118,13 @@ Embeds `@noble/ed25519` (pure JS, Expo-safe, no native module).
 ```
 launch
   └─ ErrorBoundary
-       └─ DbProvider
-            └─ LicenseGate
-                 ├─ loadLicense() → verifyLicense()
-                 │     ├─ ok    → render app (Stack/tabs)
-                 │     └─ !ok   → lock screen
-                 │                   └─ user pastes key → verifyLicense()
-                 │                         ├─ ok  → saveLicense() → render app
-                 │                         └─ !ok → inline error, stay locked
+       └─ LicenseGate
+            ├─ loadLicense() → verifyLicense()
+            │     ├─ ok    → render DbProvider → app (Stack/tabs)
+            │     └─ !ok   → lock screen (DB never opens)
+            │                   └─ user pastes key → verifyLicense()
+            │                         ├─ ok  → saveLicense() → render app
+            │                         └─ !ok → inline error, stay locked
 ```
 
 ## Edge cases
