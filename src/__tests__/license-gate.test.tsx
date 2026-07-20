@@ -4,13 +4,18 @@ import { LicenseGate } from '@/components/LicenseGate';
 
 let mockStored: string | null = null;
 jest.mock('@/lib/license', () => ({
+  verifyLicense: jest.fn((s: string) =>
+    s === 'kur-good' ? { ok: true, buyerId: 'b@x.com' } : { ok: false, reason: 'That key is not valid' },
+  ),
+}));
+jest.mock('@/lib/licenseStore', () => ({
   loadLicense: jest.fn(async () => mockStored),
   saveLicense: jest.fn(async (s: string) => {
     mockStored = s;
   }),
-  verifyLicense: jest.fn((s: string) =>
-    s === 'kur-good' ? { ok: true, buyerId: 'b@x.com' } : { ok: false, reason: 'That key is not valid' },
-  ),
+  clearLicense: jest.fn(async () => {
+    mockStored = null;
+  }),
 }));
 
 const Child = () => <Text>UNLOCKED APP</Text>;

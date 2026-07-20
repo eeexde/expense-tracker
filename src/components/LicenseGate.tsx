@@ -7,7 +7,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { loadLicense, saveLicense, verifyLicense } from '@/lib/license';
+import { verifyLicense } from '@/lib/license';
+import { loadLicense, saveLicense } from '@/lib/licenseStore';
 import { colors, fonts, radii, spacing } from '@/theme';
 
 type Phase = 'checking' | 'locked' | 'unlocked';
