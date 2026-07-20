@@ -7,7 +7,7 @@ import nacl from 'tweetnacl';
 
 /** Author's public key: 32-byte Ed25519 public key, hex. Filled in after
  * running scripts/gen-keypair.mjs. Empty until then → verify always fails. */
-export const PUBLIC_KEY_HEX = '';
+export const PUBLIC_KEY_HEX = 'bf60103355cd5dd279f7b3b16800a1a13400bae77a1e8b45f830e850e6977d9c';
 
 /** buyerIds whose licenses are no longer honored. Ships in the app bundle. */
 export const REVOKED_BUYER_IDS: string[] = [];
