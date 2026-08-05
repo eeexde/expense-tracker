@@ -7,7 +7,7 @@ import {
   transactions,
 } from './schema';
 import { seedIfEmpty, PRESET_BUCKETS } from './seed';
-import { createTestDb } from './testDb';
+import { createTestDb, expectConstraintError } from './testDb';
 
 describe('db schema', () => {
   it('inserts and reads buckets and transactions', async () => {
@@ -89,13 +89,14 @@ describe('notification auto-log tables', () => {
       .returning();
     const row = { sourceId: source.id, rawText: 't', notifKey: 'dup', postedAt: 'now' };
     await db.insert(pendingNotifications).values(row);
-    await expect(db.insert(pendingNotifications).values(row)).rejects.toThrow();
+    await expectConstraintError(() => db.insert(pendingNotifications).values(row), /UNIQUE/i);
   });
 
   it('rejects a notification source pointing at a missing bucket', async () => {
     const db = createTestDb();
-    await expect(
-      db.insert(notificationSources).values({ bucketId: 999, packageName: 'x' }),
-    ).rejects.toThrow();
+    await expectConstraintError(
+      () => db.insert(notificationSources).values({ bucketId: 999, packageName: 'x' }),
+      /FOREIGN KEY/i,
+    );
   });
 });

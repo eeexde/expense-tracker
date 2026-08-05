@@ -32,6 +32,9 @@ module.exports = {
       preset: 'jest-expo',
       testMatch: null,
       testRegex: '\\.test\\.tsx$',
+      // The first render in a file pays for transforming the whole RN module
+      // graph, which busts the 5s default on a cold cache — i.e. every CI run.
+      testTimeout: 30000,
       transformIgnorePatterns: [
         'node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native|native-base|react-native-svg|react-native-gifted-charts|gifted-charts-core)',
       ],

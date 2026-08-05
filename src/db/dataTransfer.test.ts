@@ -11,7 +11,7 @@ import {
   utang,
   utangPayments,
 } from './schema';
-import { createTestDb, TestDb } from './testDb';
+import { createTestDb, expectConstraintError, TestDb } from './testDb';
 import { addExpense } from './repo';
 import { addUtang, addUtangPayment } from './utangRepo';
 import { addCategoryRule, addSource } from './notificationRepo';
@@ -92,7 +92,7 @@ describe('dataTransfer', () => {
 
     const db = createTestDb();
     await db.insert(buckets).values({ name: 'Keep me', startingBalance: 0 });
-    await expect(importData(db, payload)).rejects.toThrow();
+    await expectConstraintError(() => importData(db, payload), /FOREIGN KEY/i);
     const rows = await db.select().from(buckets);
     expect(rows).toHaveLength(1);
     expect(rows[0].name).toBe('Keep me');
