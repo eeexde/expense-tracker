@@ -411,6 +411,75 @@ describe('inbox actions + expiry', () => {
     expect(await listPending(db)).toHaveLength(0);
   });
 
+  it('two overlapping commits of the same row insert exactly one transaction', async () => {
+    const db = createTestDb();
+    await setup(db);
+    await queueOne(db, 'race1', NOW);
+    const [pending] = await listPending(db);
+    // commitPending is a check-then-insert spanning four awaits, so a second
+    // call entering one await behind the first cleared the sourceNotifKey
+    // check long before the first one inserted — two transactions, one
+    // notification. The inbox screen and the foreground sync both call it.
+    const results = await Promise.allSettled([
+      commitPending(db, pending.id),
+      commitPending(db, pending.id),
+    ]);
+    expect(await db.select().from(transactions)).toHaveLength(1);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    const [row] = await db.select().from(pendingNotifications);
+    expect(row.status).toBe('committed');
+  });
+
+  it('a discard landing mid-commit never logs the transaction it declined', async () => {
+    const db = createTestDb();
+    await setup(db);
+    await queueOne(db, 'race3', NOW);
+    const [pending] = await listPending(db);
+    // Both buttons sit on the same inbox row, and expirePending fires the same
+    // commit from syncNotifications on every foreground. Off the commit chain
+    // the discard's UPDATE lands between the commit's checks and its insert:
+    // the row flips to 'discarded' and the transaction is inserted anyway —
+    // money the user just declined, and unrecoverable, since the row is no
+    // longer pending for the idempotent-recovery branch to find.
+    const commit = commitPending(db, pending.id).catch(() => undefined);
+    // Several microtasks in, i.e. past commitPendingLocked's status and
+    // sourceNotifKey checks but before it inserts.
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    await discardPending(db, pending.id);
+    await commit;
+
+    const [row] = await db.select().from(pendingNotifications);
+    const txns = await db.select().from(transactions);
+    // The commit took the chain first, so it wins outright and the discard is
+    // the documented no-op on an already-committed row. What must never happen
+    // is the mixed outcome: discarded status with a transaction behind it.
+    expect(row.status).toBe('committed');
+    expect(txns).toHaveLength(1);
+  });
+
+  it('a confirm landing mid-expiry does not double-log the row', async () => {
+    const db = createTestDb();
+    await setup(db);
+    await queueOne(db, 'race2', '2026-07-07T08:00:00.000Z');
+    const [pending] = await listPending(db);
+    // The stronger path: expirePending auto-commits rows >= 2 days old from
+    // syncNotifications on every foreground, and the inbox lists those same
+    // rows ("Auto-logs in 0d"). Whichever loses the race must not insert.
+    const [expiry, confirmed] = await Promise.all([
+      expirePending(db, NOW),
+      commitPending(db, pending.id).then(
+        () => true,
+        () => false,
+      ),
+    ]);
+    expect(await db.select().from(transactions)).toHaveLength(1);
+    expect(await listPending(db)).toHaveLength(0);
+    // Exactly one side did the commit and the other reported a no-op. `<= 1` on
+    // its own cannot fail — one queued row makes `committed` structurally 0 or
+    // 1 — so it never caught the loser counting a commit it did not perform.
+    expect(expiry.committed + (confirmed ? 1 : 0)).toBe(1);
+  });
+
   it('updateSource rejects an empty package name', async () => {
     const db = createTestDb();
     const { source } = await setup(db);

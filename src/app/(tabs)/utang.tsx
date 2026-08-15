@@ -17,7 +17,13 @@ export default function UtangScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.headerRow}>
           <Text style={styles.pageTitle}>Utang</Text>
-          <Pressable onPress={() => router.push('/add-utang')} hitSlop={8}>
+          <Pressable
+            style={styles.addButton}
+            onPress={() => router.push('/add-utang')}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Add utang"
+          >
             <Text style={styles.addLink}>＋ Add</Text>
           </Pressable>
         </View>
@@ -113,6 +119,13 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   pageTitle: { fontFamily: fonts.display, fontSize: 22, color: colors.ink },
+  // Text alone was a ~20px tap target; the box brings it to the 44px minimum.
+  addButton: {
+    minHeight: 44,
+    minWidth: 44,
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+  },
   addLink: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.gold },
   totalsRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
   totalCard: {

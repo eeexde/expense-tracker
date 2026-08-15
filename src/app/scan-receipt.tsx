@@ -1,8 +1,8 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
-import { useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, AppState, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Icon } from '@/components/Icon';
 import { recognizeReceiptText, saveReceiptPhoto } from '@/lib/ocr';
@@ -17,14 +17,56 @@ import { colors, fonts, radii, spacing } from '@/theme';
 export default function ScanReceiptScreen() {
   const router = useRouter();
   const cameraRef = useRef<CameraView>(null);
-  const [permission, requestPermission] = useCameraPermissions();
+  const [permission, requestPermission, getPermission] = useCameraPermissions();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // OCR keeps running after the screen goes away. Without this flag a run that
+  // resolves post-exit would `router.replace` the user into a prefilled
+  // add-transaction form from wherever they navigated to instead.
+  const gone = useRef(false);
+  useEffect(
+    () => () => {
+      gone.current = true;
+    },
+    [],
+  );
 
-  /** Shared tail of both flows: persist, OCR, parse, prefill the form. */
+  // The generated permission hook fetches the status exactly once, on mount.
+  // Granting camera access in system settings does not restart the app (Android
+  // only kills the process on a REVOKE), so without this re-read the "Open
+  // settings" escape hatch below is a dead end: the user comes back having
+  // enabled the camera and still sees the denial screen. Same AppState pattern
+  // as auto-log's notification-access check.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void getPermission();
+    });
+    return () => sub.remove();
+  }, [getPermission]);
+
+  /**
+   * Leaves the screen and abandons any OCR still in flight. `gone` is latched
+   * before navigating, so the exit has to actually happen: deep-linked straight
+   * into /scan-receipt there is nothing to pop, and a bare `back()` would leave
+   * the screen mounted and permanently inert — captures would set `busy`, drop
+   * their result, and never clear it or show an error.
+   */
+  const close = () => {
+    gone.current = true;
+    if (router.canGoBack()) router.back();
+    else router.replace('/');
+  };
+
+  /** Shared tail of both flows: OCR, parse, persist, prefill the form. */
   const processImage = async (uri: string) => {
+    // OCR the source image and only copy it into permanent storage once the
+    // screen is still there to use it. ML Kit reads any local path, so the copy
+    // buys nothing before this point — and running it first orphaned a full-size
+    // photo in documents/receipts on every abandoned scan, with nothing that
+    // ever collects them.
+    const text = await recognizeReceiptText(uri);
+    if (gone.current) return;
     const photoUri = saveReceiptPhoto(uri);
-    const text = await recognizeReceiptText(photoUri);
     const parsed = parseTransactionImage(text);
     router.replace({
       pathname: '/add-transaction',
@@ -48,6 +90,7 @@ export default function ScanReceiptScreen() {
       const photo = await cameraRef.current.takePictureAsync();
       await processImage(photo.uri);
     } catch {
+      if (gone.current) return;
       setError('Could not read the receipt. Try again.');
       setBusy(false);
     }
@@ -68,6 +111,7 @@ export default function ScanReceiptScreen() {
       }
       await processImage(result.assets[0].uri);
     } catch {
+      if (gone.current) return;
       setError('Could not read that image. Try another one.');
       setBusy(false);
     }
@@ -76,15 +120,28 @@ export default function ScanReceiptScreen() {
   if (!permission) return <View style={styles.screen} />;
 
   if (!permission.granted) {
+    // Once the OS stops allowing prompts (permanent denial), requestPermission()
+    // silently no-ops — the only way back is the system settings screen. Same
+    // idea as auto-log's "Open notification access settings" escape hatch.
+    const blocked = !permission.canAskAgain;
     // Camera access is optional: gallery ingestion still works without it.
     return (
       <SafeAreaView style={[styles.screen, styles.center]}>
         <Text style={styles.permissionText}>
-          Camera access is needed to scan receipts. You can also pick a photo from your gallery.
+          {blocked
+            ? 'Camera access is turned off for Kuripot. Enable it in system settings to scan receipts, or pick a photo from your gallery instead.'
+            : 'Camera access is needed to scan receipts. You can also pick a photo from your gallery.'}
         </Text>
         {error && <Text style={styles.errorText}>{error}</Text>}
-        <Pressable style={styles.primaryButton} onPress={requestPermission} disabled={busy}>
-          <Text style={styles.primaryButtonText}>Allow camera</Text>
+        <Pressable
+          style={styles.primaryButton}
+          onPress={blocked ? () => Linking.openSettings() : requestPermission}
+          disabled={busy}
+          accessibilityRole="button"
+        >
+          <Text style={styles.primaryButtonText}>
+            {blocked ? 'Open settings' : 'Allow camera'}
+          </Text>
         </Pressable>
         <Pressable
           style={styles.secondaryButton}
@@ -102,7 +159,7 @@ export default function ScanReceiptScreen() {
             </>
           )}
         </Pressable>
-        <Pressable onPress={() => router.back()}>
+        <Pressable style={styles.cancelButton} onPress={close} accessibilityRole="button">
           <Text style={styles.cancelText}>Go back</Text>
         </Pressable>
       </SafeAreaView>
@@ -113,7 +170,13 @@ export default function ScanReceiptScreen() {
     <View style={styles.screen}>
       <CameraView ref={cameraRef} style={styles.camera} facing="back" />
       <SafeAreaView style={styles.overlay} edges={['bottom', 'top']} pointerEvents="box-none">
-        <Pressable style={styles.close} onPress={() => router.back()} accessibilityLabel="Close">
+        <Pressable
+          style={styles.close}
+          onPress={close}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+        >
           <Text style={styles.closeText}>✕</Text>
         </Pressable>
         <View style={styles.bottom}>
@@ -158,9 +221,9 @@ const styles = StyleSheet.create({
   close: {
     alignSelf: 'flex-end',
     margin: spacing.md,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: 'rgba(12, 23, 18, 0.7)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -226,5 +289,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
   },
   secondaryButtonText: { fontFamily: fonts.bodyMedium, fontSize: 15, color: colors.ink },
+  cancelButton: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+  },
   cancelText: { fontFamily: fonts.body, fontSize: 14, color: colors.inkDim },
 });

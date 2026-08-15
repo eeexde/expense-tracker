@@ -1,8 +1,18 @@
-import { useState } from 'react';
-import { ScrollView, Text, TextInput } from 'react-native';
+import { useRef, useState } from 'react';
+import { Text, TextInput } from 'react-native';
 import { Bucket, Category } from '@/db/schema';
 import { centavosToInput, parsePesoInput } from '@/lib/money';
-import { ChipRow, formStyles, Segmented, SubmitButton } from './form';
+import {
+  ChipRow,
+  FormTextInput,
+  formStyles,
+  KeyboardAwareForm,
+  NUMERIC_PAD_HAS_RETURN_KEY,
+  NUMERIC_PAD_NEXT,
+  Segmented,
+  SubmitButton,
+  useSubmitGuard,
+} from './form';
 import { colors } from '@/theme';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -21,7 +31,7 @@ interface Props {
   buckets: Bucket[];
   categories: Category[];
   initial?: RecurringFormValues;
-  onSubmit: (values: RecurringFormValues) => void;
+  onSubmit: (values: RecurringFormValues) => void | Promise<void>;
 }
 
 /** Shared by the add and edit recurring screens. */
@@ -39,6 +49,8 @@ export function RecurringForm({ buckets, categories, initial, onSubmit }: Props)
   );
   const [bucketId, setBucketId] = useState<number | undefined>(initial?.bucketId);
   const [categoryId, setCategoryId] = useState<number | undefined>(initial?.categoryId);
+  const amountRef = useRef<TextInput>(null);
+  const dayDueRef = useRef<TextInput>(null);
 
   const amount = parsePesoInput(amountText);
   const dayDue = frequency === 'monthly' ? Number(dayDueText) : weekday;
@@ -46,24 +58,28 @@ export function RecurringForm({ buckets, categories, initial, onSubmit }: Props)
     frequency === 'weekly' || (Number.isInteger(dayDue) && dayDue >= 1 && dayDue <= 31);
   const valid = name.trim() !== '' && amount !== null && bucketId !== undefined && dayDueValid;
 
-  const submit = () => {
+  const [submitting, submit] = useSubmitGuard(async () => {
     if (!valid || amount === null || bucketId === undefined) return;
-    onSubmit({ name: name.trim(), amount, frequency, dayDue, bucketId, categoryId });
-  };
+    await onSubmit({ name: name.trim(), amount, frequency, dayDue, bucketId, categoryId });
+  });
 
   return (
-    <ScrollView contentContainerStyle={formStyles.content} keyboardShouldPersistTaps="handled">
+    <KeyboardAwareForm>
       <Text style={formStyles.label}>Name</Text>
-      <TextInput
+      <FormTextInput
         style={formStyles.textInput}
         value={name}
         onChangeText={setName}
         placeholder="e.g. Electricity"
         placeholderTextColor={colors.inkFaint}
+        returnKeyType="next"
+        submitBehavior="submit"
+        onSubmitEditing={() => amountRef.current?.focus()}
       />
 
       <Text style={formStyles.label}>Amount</Text>
-      <TextInput
+      <FormTextInput
+        ref={amountRef}
         style={[
           formStyles.textInput,
           amountText.trim() !== '' && amount === null && formStyles.textInputError,
@@ -73,6 +89,10 @@ export function RecurringForm({ buckets, categories, initial, onSubmit }: Props)
         placeholder="0.00"
         placeholderTextColor={colors.inkFaint}
         keyboardType="decimal-pad"
+        // Weekly mode picks the day from chips, so there is no next field to jump to.
+        {...(NUMERIC_PAD_HAS_RETURN_KEY && frequency === 'monthly'
+          ? { ...NUMERIC_PAD_NEXT, onSubmitEditing: () => dayDueRef.current?.focus() }
+          : null)}
       />
 
       <Text style={formStyles.label}>How often</Text>
@@ -88,7 +108,8 @@ export function RecurringForm({ buckets, categories, initial, onSubmit }: Props)
       {frequency === 'monthly' ? (
         <>
           <Text style={formStyles.label}>Day of month (1–31)</Text>
-          <TextInput
+          <FormTextInput
+            ref={dayDueRef}
             style={[formStyles.textInput, !dayDueValid && formStyles.textInputError]}
             value={dayDueText}
             onChangeText={setDayDueText}
@@ -120,7 +141,7 @@ export function RecurringForm({ buckets, categories, initial, onSubmit }: Props)
         onSelect={(id) => setCategoryId(categoryId === id ? undefined : id)}
       />
 
-      <SubmitButton label="Save" disabled={!valid} onPress={submit} />
-    </ScrollView>
+      <SubmitButton label="Save" disabled={!valid} submitting={submitting} onPress={submit} />
+    </KeyboardAwareForm>
   );
 }

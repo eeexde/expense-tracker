@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { FormTextInput } from './form';
 import { parsePesoInput } from '@/lib/money';
 import { colors, fonts, spacing } from '@/theme';
 
@@ -12,7 +13,15 @@ interface Props {
   editable?: boolean;
 }
 
-/** Big peso-first amount entry. Reports parsed centavos, never raw text. */
+/**
+ * Big peso-first amount entry. Reports parsed centavos, never raw text.
+ *
+ * `FormTextInput` rather than a bare `TextInput` so the field joins the
+ * focus-reveal chain: in `TransactionForm` it is the autofocused top field and
+ * never under the keyboard, but in the notification inbox's edit sheet it sits
+ * wherever the sheet happens to land. Outside a `KeyboardAwareForm` the reveal
+ * context is null and it behaves exactly like the plain input it replaced.
+ */
 export function AmountInput({ onChangeAmount, initialText = '', autoFocus, editable = true }: Props) {
   const [text, setText] = useState(initialText);
   const invalid = text.trim() !== '' && parsePesoInput(text) === null;
@@ -26,7 +35,7 @@ export function AmountInput({ onChangeAmount, initialText = '', autoFocus, edita
     <View style={styles.wrap}>
       <View style={styles.row}>
         <Text style={styles.peso}>₱</Text>
-        <TextInput
+        <FormTextInput
           style={[styles.input, !editable && styles.inputLocked]}
           value={text}
           onChangeText={handleChange}

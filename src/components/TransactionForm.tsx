@@ -1,12 +1,18 @@
-import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useMemo, useRef, useState } from 'react';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Image } from 'expo-image';
 import { Bucket, Category } from '@/db/schema';
 import { InstallmentWithRemaining } from '@/db/installmentRepo';
 import { UtangWithRemaining } from '@/db/utangRepo';
 import { centavosToInput, formatPeso, parsePesoInput } from '@/lib/money';
 import { AmountInput } from './AmountInput';
-import { ChipRow } from './form';
+import {
+  ChipRow,
+  FormTextInput,
+  KeyboardAwareForm,
+  SIGNED_NUMERIC_KEYBOARD,
+  useSubmitGuard,
+} from './form';
 import { Icon } from './Icon';
 import { colors, fonts, radii, spacing, todayLocal } from '@/theme';
 
@@ -30,7 +36,7 @@ export interface TransactionFormValues {
 interface Props {
   buckets: Bucket[];
   categories: Category[];
-  onSubmit: (values: TransactionFormValues) => void;
+  onSubmit: (values: TransactionFormValues) => void | Promise<void>;
   /** Open debts offered for linking. Hidden when omitted or empty. */
   openUtang?: UtangWithRemaining[];
   /** Open installment plans offered for (advance) payment linking. */
@@ -96,6 +102,7 @@ export function TransactionForm({
   const [date, setDate] = useState(initialValues?.date ?? todayLocal());
   const [utangId, setUtangId] = useState<number | undefined>(undefined);
   const [installmentId, setInstallmentId] = useState<number | undefined>(undefined);
+  const noteRef = useRef<TextInput>(null);
 
   const kindCategories = useMemo(
     () => categories.filter((c) => c.type === (kind === 'income' ? 'income' : 'expense')),
@@ -130,9 +137,9 @@ export function TransactionForm({
     !overpaysInstallment &&
     (kind !== 'transfer' || (toBucketId !== undefined && toBucketId !== bucketId));
 
-  const submit = () => {
+  const [submitting, submit] = useSubmitGuard(async () => {
     if (!valid || amount === null || bucketId === undefined) return;
-    onSubmit({
+    await onSubmit({
       kind,
       amount,
       bucketId,
@@ -144,14 +151,10 @@ export function TransactionForm({
       utangId: linkedUtang?.id,
       installmentId: linkedInstallment?.id,
     });
-  };
+  });
 
   return (
-    <ScrollView
-      style={styles.screen}
-      contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled"
-    >
+    <KeyboardAwareForm>
       <View style={styles.segmented}>
         {KINDS.map(({ kind: k, label }) => (
           <Pressable
@@ -278,22 +281,29 @@ export function TransactionForm({
       )}
 
       <Text style={styles.label}>Date</Text>
-      <TextInput
+      <FormTextInput
         style={[styles.textInput, !dateValid && styles.textInputError]}
         value={date}
         onChangeText={setDate}
         placeholder="YYYY-MM-DD"
         placeholderTextColor={colors.inkFaint}
+        keyboardType={SIGNED_NUMERIC_KEYBOARD}
+        returnKeyType="next"
+        submitBehavior="submit"
+        onSubmitEditing={() => noteRef.current?.focus()}
         testID="date-input"
       />
+      {!dateValid && <Text style={styles.linkError}>Invalid date — use YYYY-MM-DD.</Text>}
 
       <Text style={styles.label}>Note</Text>
-      <TextInput
+      <FormTextInput
+        ref={noteRef}
         style={styles.textInput}
         value={note}
         onChangeText={setNote}
         placeholder="Optional"
         placeholderTextColor={colors.inkFaint}
+        returnKeyType="done"
         testID="note-input"
       />
 
@@ -311,21 +321,20 @@ export function TransactionForm({
       )}
 
       <Pressable
-        style={[styles.submit, !valid && styles.submitDisabled]}
+        style={[styles.submit, (!valid || submitting) && styles.submitDisabled]}
         onPress={submit}
-        disabled={!valid}
+        disabled={!valid || submitting}
         accessibilityRole="button"
+        accessibilityState={{ disabled: !valid || submitting, busy: submitting }}
         testID="submit"
       >
         <Text style={styles.submitText}>{submitLabel}</Text>
       </Pressable>
-    </ScrollView>
+    </KeyboardAwareForm>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: spacing.md, gap: spacing.sm, paddingBottom: spacing.xl },
   segmented: {
     flexDirection: 'row',
     backgroundColor: colors.surface,
@@ -335,9 +344,12 @@ const styles = StyleSheet.create({
   },
   segment: {
     flex: 1,
+    // 44 is the minimum comfortable tap target; padding alone gives ~33.
+    minHeight: 44,
     paddingVertical: spacing.sm,
     borderRadius: radii.pill,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   segmentActive: { backgroundColor: colors.surfaceRaised },
   segmentLocked: { opacity: 0.35 },

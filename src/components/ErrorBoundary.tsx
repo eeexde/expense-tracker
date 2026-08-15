@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { colors, fonts, radii, spacing } from '@/theme';
 
 type Props = { children: ReactNode };
-type State = { error: Error | null };
+type State = { error: Error | null; showDetails: boolean };
 
 /**
  * Root error boundary. Catches render/lifecycle throws anywhere in the tree
@@ -12,9 +12,12 @@ type State = { error: Error | null };
  * the caught error and re-mounts the subtree.
  */
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { error: null };
+  // Raw messages are developer text (SQL, native stack fragments) — meaningless
+  // to a user and a place where data can leak into the UI. Expanded by default
+  // in dev, behind "Show details" in a release build.
+  state: State = { error: null, showDetails: __DEV__ };
 
-  static getDerivedStateFromError(error: Error): State {
+  static getDerivedStateFromError(error: Error): Pick<State, 'error'> {
     return { error };
   }
 
@@ -23,10 +26,12 @@ export class ErrorBoundary extends Component<Props, State> {
     console.error('Uncaught error in render tree:', error, info?.componentStack);
   }
 
-  reset = () => this.setState({ error: null });
+  reset = () => this.setState({ error: null, showDetails: __DEV__ });
+
+  toggleDetails = () => this.setState((prev) => ({ showDetails: !prev.showDetails }));
 
   render() {
-    const { error } = this.state;
+    const { error, showDetails } = this.state;
     if (!error) return this.props.children;
 
     return (
@@ -37,9 +42,21 @@ export class ErrorBoundary extends Component<Props, State> {
             Kuripot hit an unexpected error. Your saved data is safe. Try again,
             and if it keeps happening, restart the app.
           </Text>
-          <View style={styles.detailBox}>
-            <Text style={styles.detail}>{error.message || String(error)}</Text>
-          </View>
+          <Pressable
+            style={styles.detailToggle}
+            onPress={this.toggleDetails}
+            hitSlop={8}
+            accessibilityRole="button"
+          >
+            <Text style={styles.detailToggleText}>
+              {showDetails ? 'Hide details' : 'Show details'}
+            </Text>
+          </Pressable>
+          {showDetails && (
+            <View style={styles.detailBox}>
+              <Text style={styles.detail}>{error.message || String(error)}</Text>
+            </View>
+          )}
           <Pressable style={styles.button} onPress={this.reset}>
             <Text style={styles.buttonText}>Try again</Text>
           </Pressable>
@@ -67,6 +84,16 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     color: colors.inkDim,
+  },
+  detailToggle: {
+    minHeight: 44,
+    justifyContent: 'center',
+    alignSelf: 'flex-start',
+  },
+  detailToggleText: {
+    fontFamily: fonts.bodyBold,
+    fontSize: 14,
+    color: colors.gold,
   },
   detailBox: {
     backgroundColor: colors.surface,

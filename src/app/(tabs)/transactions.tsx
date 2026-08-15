@@ -1,11 +1,21 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Icon } from '@/components/Icon';
+import { QueryErrorNotice } from '@/components/QueryError';
 import { TransactionRow } from '@/components/TransactionRow';
 import { useDb } from '@/db/DbProvider';
-import { useAppQuery } from '@/db/hooks';
+import { useAppQuery, useAppQueryResult } from '@/db/hooks';
 import { pendingCount } from '@/db/notificationRepo';
 import { deleteTransaction, listTransactions } from '@/db/repo';
 import { buckets as bucketsTable, categories as categoriesTable, Transaction } from '@/db/schema';
@@ -29,7 +39,14 @@ export default function TransactionsScreen() {
   const [bucketId, setBucketId] = useState<number | undefined>(undefined);
   const [categoryId, setCategoryId] = useState<number | undefined>(undefined);
 
-  const txns = useAppQuery(
+  // The one query behind a spinner takes the non-throwing hook: a rejection
+  // costs this list an inline retry, not the whole navigator. See
+  // `useAppQueryResult`.
+  const {
+    data: txns,
+    error: txnsError,
+    retry: retryTxns,
+  } = useAppQueryResult(
     (db) => listTransactions(db, { month, type, bucketId, categoryId }),
     [month, type, bucketId, categoryId],
   );
@@ -101,13 +118,11 @@ export default function TransactionsScreen() {
         testIDPrefix="filter-category"
       />
 
-      <ScrollView contentContainerStyle={styles.content}>
-        {txns !== undefined && txns.length === 0 && (
-          <Text style={styles.empty}>No matching transactions this month.</Text>
-        )}
-        {(txns ?? []).map((txn) => (
+      <FlatList
+        data={txns ?? []}
+        keyExtractor={(txn) => String(txn.id)}
+        renderItem={({ item: txn }) => (
           <TransactionRow
-            key={txn.id}
             txn={txn}
             category={txn.categoryId != null ? categoryById.get(txn.categoryId) : undefined}
             bucket={bucketById.get(txn.bucketId)}
@@ -115,8 +130,27 @@ export default function TransactionsScreen() {
             onPress={() => router.push({ pathname: '/edit-transaction', params: { id: String(txn.id) } })}
             onLongPress={() => confirmDelete(txn)}
           />
-        ))}
-      </ScrollView>
+        )}
+        contentContainerStyle={styles.content}
+        ListHeaderComponent={
+          txns !== undefined && txns.length > 0 ? (
+            <Text style={styles.hint}>Tap a transaction to edit it. Long-press to delete.</Text>
+          ) : null
+        }
+        ListEmptyComponent={
+          txnsError !== null && txns === undefined ? (
+            <QueryErrorNotice
+              message="Couldn't load transactions."
+              onRetry={retryTxns}
+              testID="transactions-error"
+            />
+          ) : txns === undefined ? (
+            <ActivityIndicator style={styles.loading} color={colors.gold} />
+          ) : (
+            <Text style={styles.empty}>No matching transactions this month.</Text>
+          )
+        }
+      />
     </SafeAreaView>
   );
 }
@@ -175,6 +209,9 @@ const styles = StyleSheet.create({
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
+    // Matches formStyles.chip: 44 is the minimum comfortable tap target,
+    // padding alone gives ~26.
+    minHeight: 44,
     gap: spacing.xs,
     backgroundColor: colors.surface,
     borderColor: colors.border,
@@ -207,6 +244,13 @@ const styles = StyleSheet.create({
   },
   inboxPillText: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.gold },
   content: { paddingHorizontal: spacing.md, paddingBottom: spacing.xl },
+  hint: {
+    fontFamily: fonts.body,
+    fontSize: 11,
+    color: colors.inkFaint,
+    marginBottom: spacing.xs,
+  },
+  loading: { paddingVertical: spacing.xl },
   empty: {
     fontFamily: fonts.body,
     fontSize: 14,

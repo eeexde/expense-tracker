@@ -1,9 +1,18 @@
 import { useRouter } from 'expo-router';
-import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  FlatList,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BucketCard } from '@/components/BucketCard';
+import { QueryErrorNotice } from '@/components/QueryError';
 import { TransactionRow } from '@/components/TransactionRow';
-import { useAppQuery } from '@/db/hooks';
+import { useAppQuery, useAppQueryResult } from '@/db/hooks';
 import { allBucketBalances, listTransactions, totalMoney } from '@/db/repo';
 import { categories as categoriesTable, buckets as bucketsTable } from '@/db/schema';
 import { formatPeso } from '@/lib/money';
@@ -13,7 +22,14 @@ export default function HomeScreen() {
   const router = useRouter();
   const total = useAppQuery((db) => totalMoney(db));
   const balances = useAppQuery((db) => allBucketBalances(db));
-  const recent = useAppQuery((db) => listTransactions(db, { limit: 10 }));
+  // The one query behind a spinner takes the non-throwing hook: a rejection
+  // costs this list an inline retry, not the whole navigator. See
+  // `useAppQueryResult`.
+  const {
+    data: recent,
+    error: recentError,
+    retry: retryRecent,
+  } = useAppQueryResult((db) => listTransactions(db, { limit: 10 }));
   const allCategories = useAppQuery((db) => db.select().from(categoriesTable));
   const allBuckets = useAppQuery((db) => db.select().from(bucketsTable));
 
@@ -62,6 +78,16 @@ export default function HomeScreen() {
         />
 
         <Text style={styles.sectionTitle}>Recent</Text>
+        {recentError !== null && recent === undefined && (
+          <QueryErrorNotice
+            message="Couldn't load your recent transactions."
+            onRetry={retryRecent}
+            testID="recent-error"
+          />
+        )}
+        {recentError === null && recent === undefined && (
+          <ActivityIndicator style={styles.loading} color={colors.gold} />
+        )}
         {recent !== undefined && recent.length === 0 && (
           <Text style={styles.empty}>No transactions yet. Tap + to get started.</Text>
         )}
@@ -136,6 +162,7 @@ const styles = StyleSheet.create({
   manageLink: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.gold },
   bucketRow: { gap: spacing.sm, paddingBottom: spacing.sm },
   empty: { fontFamily: fonts.body, fontSize: 14, color: colors.inkFaint, paddingVertical: spacing.md },
+  loading: { paddingVertical: spacing.md },
   fab: {
     position: 'absolute',
     right: spacing.lg,

@@ -23,7 +23,13 @@ export default function RecurringScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.headerRow}>
           <Text style={styles.sectionTitle}>Recurring expenses</Text>
-          <Pressable onPress={() => router.push('/add-recurring')} hitSlop={8}>
+          <Pressable
+            style={styles.addButton}
+            onPress={() => router.push('/add-recurring')}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Add recurring expense"
+          >
             <Text style={styles.addLink}>＋ Add</Text>
           </Pressable>
         </View>
@@ -54,7 +60,13 @@ export default function RecurringScreen() {
 
         <View style={[styles.headerRow, { marginTop: spacing.lg }]}>
           <Text style={styles.sectionTitle}>Installments</Text>
-          <Pressable onPress={() => router.push('/add-installment')} hitSlop={8}>
+          <Pressable
+            style={styles.addButton}
+            onPress={() => router.push('/add-installment')}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Add installment plan"
+          >
             <Text style={styles.addLink}>＋ Add</Text>
           </Pressable>
         </View>
@@ -104,6 +116,13 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   sectionTitle: { fontFamily: fonts.display, fontSize: 18, color: colors.ink },
+  // Text alone was a ~20px tap target; the box brings it to the 44px minimum.
+  addButton: {
+    minHeight: 44,
+    minWidth: 44,
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+  },
   addLink: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.gold },
   card: {
     flexDirection: 'row',

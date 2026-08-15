@@ -1,10 +1,13 @@
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { getSetting, setSetting } from '@/db/settingsRepo';
 import {
   deleteModel,
   downloadModel,
+  getDownloadProgress,
+  getLastDownloadError,
+  getModelState,
   isModelDownloaded,
   llmSupported,
 } from '@/lib/llmController';
@@ -28,7 +31,20 @@ export function AiParsingSection({ db, refresh }: Props) {
   const [downloaded, setDownloaded] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  // deleteModel awaits the in-flight load/download and any running inference
+  // before it touches the files, so it can sit there for tens of seconds. Without
+  // this the row stays pressable and nothing on screen changes.
+  const [deleting, setDeleting] = useState(false);
   const [progress, setProgress] = useState(0);
+  // Mirror of the controller's last download failure. A failed download is
+  // RENDERED, never alerted: auto-log is a modal route, so every dismiss/reopen
+  // mounts a fresh section that re-joins the same in-flight download, and an
+  // Alert here would fire once per instance that ever joined — a stack of
+  // identical dialogs when a ~1GB download dies on mobile data.
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  // True while this component is awaiting a download, so a blur/focus cycle
+  // can't attach to the same download twice from this instance.
+  const tracking = useRef(false);
 
   const loadState = useCallback(
     (isCancelled: () => boolean) => {
@@ -43,30 +59,50 @@ export function AiParsingSection({ db, refresh }: Props) {
     [db],
   );
 
-  useFocusEffect(
-    useCallback(() => {
-      let cancelled = false;
-      loadState(() => cancelled);
-      return () => {
-        cancelled = true;
-      };
-    }, [loadState]),
-  );
-
-  if (!llmSupported) return null;
-
-  const handleDownload = async () => {
+  /**
+   * Starts the download — or joins the one already running. The download lives
+   * in the controller and outlives this component, so downloadModel re-points
+   * progress at this `setProgress` and resolves when that download does.
+   */
+  const runDownload = useCallback(async () => {
+    if (tracking.current) return;
+    tracking.current = true;
     setDownloading(true);
-    setProgress(0);
+    setDownloadError(null);
+    setProgress(getDownloadProgress());
     try {
       await downloadModel(db, setProgress);
       setDownloaded(true);
     } catch (e) {
-      Alert.alert('Could not download', e instanceof Error ? e.message : 'Download failed.');
+      // The controller records the failure so a section mounted later still
+      // sees it; fall back to the rejection itself if we joined a download
+      // whose error was already cleared by a newer attempt.
+      setDownloadError(getLastDownloadError() ?? (e instanceof Error ? e.message : 'Download failed.'));
     } finally {
+      tracking.current = false;
       setDownloading(false);
     }
-  };
+  }, [db]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      loadState(() => cancelled);
+      // A failure from a download this instance never saw (it happened while the
+      // modal was dismissed) still belongs on screen.
+      setDownloadError(getLastDownloadError());
+      // A download in flight survives leaving this screen. Re-join it on focus,
+      // otherwise the section offers "Download AI model" as if nothing had
+      // started — and tapping it hits the in-flight guard, leaving the bar at
+      // 0% for the rest of the ~1GB.
+      if (getModelState() === 'downloading') void runDownload();
+      return () => {
+        cancelled = true;
+      };
+    }, [loadState, runDownload]),
+  );
+
+  if (!llmSupported) return null;
 
   const handleToggle = async (next: boolean) => {
     try {
@@ -85,14 +121,30 @@ export function AiParsingSection({ db, refresh }: Props) {
         text: 'Delete',
         style: 'destructive',
         onPress: async () => {
+          if (deleting) return;
+          setDeleting(true);
           try {
             await deleteModel(db);
             await setSetting(db, 'aiParsingEnabled', 'false');
             setDownloaded(false);
             setEnabled(false);
-            refresh();
+            // The model this failure belonged to is gone; leaving it set would
+            // re-render the download row as "Retry download".
+            setDownloadError(null);
           } catch (e) {
-            Alert.alert('Could not delete', e instanceof Error ? e.message : 'Could not delete model.');
+            Alert.alert(
+              'Could not delete',
+              e instanceof Error ? e.message : 'Could not delete model.',
+            );
+            // deleteModel clears the PERSISTENT flag even when the file deletion
+            // itself fails (surviving files are dead weight; AI must still be
+            // off), so the rejection alone does not say what this section should
+            // show. Re-read both flags rather than leaving the UI insisting the
+            // model is still there when classify() will never load it again.
+            loadState(() => false);
+          } finally {
+            setDeleting(false);
+            refresh();
           }
         },
       },
@@ -108,10 +160,23 @@ export function AiParsingSection({ db, refresh }: Props) {
       </Text>
 
       {!downloaded && !downloading && (
-        <Pressable style={styles.action} onPress={handleDownload}>
-          <Text style={styles.actionTitle}>Download AI model</Text>
-          <Text style={styles.sectionSub}>~1 GB · Wi-Fi recommended · runs entirely on your phone</Text>
-        </Pressable>
+        <>
+          {/* Clamped for the same reason ErrorBoundary hides raw messages behind
+              "Show details": these come straight from executorch / the resource
+              fetcher and run to several lines of CDN URL and document-directory
+              path, which would push "Retry download" off the sheet. */}
+          {downloadError && (
+            <Text style={styles.errorText} numberOfLines={2}>
+              Download failed: {downloadError}
+            </Text>
+          )}
+          <Pressable style={styles.action} onPress={runDownload}>
+            <Text style={styles.actionTitle}>
+              {downloadError ? 'Retry download' : 'Download AI model'}
+            </Text>
+            <Text style={styles.sectionSub}>~1 GB · Wi-Fi recommended · runs entirely on your phone</Text>
+          </Pressable>
+        </>
       )}
 
       {downloading && (
@@ -134,12 +199,22 @@ export function AiParsingSection({ db, refresh }: Props) {
             <Switch
               value={enabled}
               onValueChange={handleToggle}
+              disabled={deleting}
               trackColor={{ false: colors.border, true: colors.goldDim }}
               thumbColor={enabled ? colors.gold : colors.inkFaint}
             />
           </View>
-          <Pressable style={styles.action} onPress={confirmDelete}>
-            <Text style={styles.actionTitle}>Delete model</Text>
+          <Pressable
+            style={[styles.action, deleting && styles.actionBusy]}
+            onPress={confirmDelete}
+            disabled={deleting}
+          >
+            <Text style={styles.actionTitle}>
+              {deleting ? 'Deleting…' : 'Delete model'}
+            </Text>
+            {deleting && (
+              <Text style={styles.actionSub}>Waiting for anything still using the model…</Text>
+            )}
           </Pressable>
         </>
       )}
@@ -170,7 +245,16 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     marginTop: spacing.xs,
   },
+  actionBusy: { opacity: 0.6 },
+  actionSub: {
+    fontFamily: fonts.body,
+    fontSize: 13,
+    color: colors.inkFaint,
+    textAlign: 'center',
+    marginTop: 2,
+  },
   actionTitle: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.ink, textAlign: 'center' },
+  errorText: { fontFamily: fonts.body, fontSize: 13, color: colors.danger, marginBottom: spacing.xs },
   card: {
     flexDirection: 'row',
     alignItems: 'center',

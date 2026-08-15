@@ -315,16 +315,61 @@ export interface CommitOverrides {
   type?: 'expense' | 'income';
 }
 
-export async function commitPending(
+/**
+ * Every commit runs through one chain.
+ *
+ * `commitPendingLocked` is a check-then-insert spanning four awaits, and two
+ * callers reach it independently: the inbox screen's Confirm/Save, and
+ * `expirePending` from `syncNotifications` on app start and on every
+ * AppState -> active. Unserialised, the second caller passes the
+ * `sourceNotifKey` existence check three awaits before the first one inserts,
+ * and one notification becomes two transactions.
+ *
+ * `db.transaction()` cannot carry this guarantee. Both drizzle drivers this app
+ * uses — expo-sqlite on device, better-sqlite3 in tests — implement it
+ * synchronously (`begin`, call the callback, `commit`; see
+ * drizzle-orm/expo-sqlite/session.js), so an async callback would commit at its
+ * first await, before the insert, and buy nothing. Every writer here is on the
+ * one JS thread, so a promise chain is what actually keeps a tap and a
+ * foregrounding sync from interleaving. Same shape as the ingest chain in
+ * lib/notificationSync.ts.
+ */
+let commitChain: Promise<unknown> = Promise.resolve();
+function serialiseCommit<T>(work: () => Promise<T>): Promise<T> {
+  const next = commitChain.then(work, work);
+  commitChain = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  return next;
+}
+
+export function commitPending(
   db: Db,
   id: number,
   overrides: CommitOverrides = {},
 ): Promise<void> {
+  return serialiseCommit(async () => {
+    if (!(await commitPendingLocked(db, id, overrides))) {
+      throw new Error(`No pending notification ${id}`);
+    }
+  });
+}
+
+/**
+ * The commit itself — only ever called with the commit chain held. Returns
+ * false when the row is no longer pending, i.e. someone else already took it.
+ */
+async function commitPendingLocked(
+  db: Db,
+  id: number,
+  overrides: CommitOverrides,
+): Promise<boolean> {
   const [row] = await db
     .select()
     .from(pendingNotifications)
     .where(and(eq(pendingNotifications.id, id), eq(pendingNotifications.status, 'pending')));
-  if (!row) throw new Error(`No pending notification ${id}`);
+  if (!row) return false;
 
   // Idempotent recovery: a crash between the txn insert and the status flip
   // leaves a committed transaction behind a still-pending row. Detect it via
@@ -339,7 +384,7 @@ export async function commitPending(
       .update(pendingNotifications)
       .set({ status: 'committed' })
       .where(and(eq(pendingNotifications.id, id), eq(pendingNotifications.status, 'pending')));
-    return;
+    return true;
   }
 
   const [source] = await db
@@ -361,19 +406,33 @@ export async function commitPending(
   const type = overrides.type ?? row.parsedType ?? 'expense';
   if (type === 'income') await addIncome(db, input);
   else await addExpense(db, input);
-  // Status guard narrows the race with a concurrent commit of the same row.
+  // Status guard is belt-and-braces now that the commit chain owns the race.
   await db
     .update(pendingNotifications)
     .set({ status: 'committed' })
     .where(and(eq(pendingNotifications.id, id), eq(pendingNotifications.status, 'pending')));
+  return true;
 }
 
-/** Only pending rows can be discarded; double-tap discard is a harmless no-op. */
-export async function discardPending(db: Db, id: number): Promise<void> {
-  await db
-    .update(pendingNotifications)
-    .set({ status: 'discarded' })
-    .where(and(eq(pendingNotifications.id, id), eq(pendingNotifications.status, 'pending')));
+/**
+ * Only pending rows can be discarded; double-tap discard is a harmless no-op.
+ *
+ * On the same chain as the commits, and for the same reason: the inbox renders
+ * Confirm and Discard on one row while `expirePending` auto-commits those very
+ * rows from `syncNotifications` on every foreground. Off the chain this bare
+ * UPDATE lands inside `commitPendingLocked`, between its status/sourceNotifKey
+ * checks and its insert — the row flips to 'discarded', the transaction is
+ * written anyway, and the final status flip no-ops. That state is
+ * unrecoverable: the row is no longer pending, so the idempotent-recovery
+ * branch can never reach it, and the user sees money they just declined.
+ */
+export function discardPending(db: Db, id: number): Promise<void> {
+  return serialiseCommit(async () => {
+    await db
+      .update(pendingNotifications)
+      .set({ status: 'discarded' })
+      .where(and(eq(pendingNotifications.id, id), eq(pendingNotifications.status, 'pending')));
+  });
 }
 
 // ---------- expiry ----------
@@ -399,8 +458,13 @@ export async function expirePending(db: Db, nowIso: string): Promise<ExpirySumma
       await discardPending(db, row.id);
       summary.discarded += 1;
     } else {
-      await commitPending(db, row.id);
-      summary.committed += 1;
+      // Straight onto the commit chain rather than through commitPending: the
+      // user can confirm or discard this very row from the inbox between the
+      // listPending above and our turn on the chain, and that is a skip, not an
+      // error that should abort the rest of the pass.
+      if (await serialiseCommit(() => commitPendingLocked(db, row.id, {}))) {
+        summary.committed += 1;
+      }
     }
   }
   return summary;

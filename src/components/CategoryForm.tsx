@@ -1,6 +1,13 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { formStyles, Segmented, SubmitButton } from './form';
+import { Pressable, Text, View } from 'react-native';
+import {
+  FormTextInput,
+  formStyles,
+  KeyboardAwareForm,
+  Segmented,
+  SubmitButton,
+  useSubmitGuard,
+} from './form';
 import { CATEGORY_ICON_OPTIONS, Icon } from './Icon';
 import { colors, radii } from '@/theme';
 
@@ -17,7 +24,7 @@ interface Props {
   /** Type is fixed once a category exists — expense/income can't flip. */
   lockType?: boolean;
   submitLabel?: string;
-  onSubmit: (values: CategoryFormValues) => void;
+  onSubmit: (values: CategoryFormValues) => void | Promise<void>;
 }
 
 /** Shared fields for the add/edit category modals. */
@@ -28,13 +35,13 @@ export function CategoryForm({ initial, lockType = false, submitLabel = 'Save', 
 
   const valid = name.trim() !== '';
 
-  const submit = () => {
+  const [submitting, submit] = useSubmitGuard(async () => {
     if (!valid) return;
-    onSubmit({ name: name.trim(), icon, type });
-  };
+    await onSubmit({ name: name.trim(), icon, type });
+  });
 
   return (
-    <ScrollView contentContainerStyle={formStyles.content} keyboardShouldPersistTaps="handled">
+    <KeyboardAwareForm>
       {!lockType && (
         <Segmented
           options={[
@@ -47,12 +54,13 @@ export function CategoryForm({ initial, lockType = false, submitLabel = 'Save', 
       )}
 
       <Text style={formStyles.label}>Name</Text>
-      <TextInput
+      <FormTextInput
         style={formStyles.textInput}
         value={name}
         onChangeText={setName}
         placeholder="e.g. Groceries"
         placeholderTextColor={colors.inkFaint}
+        returnKeyType="done"
         testID="category-name"
       />
 
@@ -85,7 +93,12 @@ export function CategoryForm({ initial, lockType = false, submitLabel = 'Save', 
         })}
       </View>
 
-      <SubmitButton label={submitLabel} disabled={!valid} onPress={submit} />
-    </ScrollView>
+      <SubmitButton
+        label={submitLabel}
+        disabled={!valid}
+        submitting={submitting}
+        onPress={submit}
+      />
+    </KeyboardAwareForm>
   );
 }

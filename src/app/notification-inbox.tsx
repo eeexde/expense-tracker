@@ -1,10 +1,27 @@
 import { eq } from 'drizzle-orm';
 import { useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AmountInput } from '@/components/AmountInput';
-import { ChipRow, formStyles, Segmented, SubmitButton } from '@/components/form';
+import {
+  ChipRow,
+  formStyles,
+  FormTextInput,
+  Segmented,
+  SubmitButton,
+  useKeyboardSheetLift,
+  useSubmitGuard,
+} from '@/components/form';
 import {
   merchantLabel,
   PendingNotificationCard,
@@ -31,7 +48,17 @@ export default function NotificationInboxScreen() {
   const sourceById = new Map((sources ?? []).map((s) => [s.id, s]));
   const bucketById = new Map((allBuckets ?? []).map((b) => [b.id, b]));
 
-  const [busyId, setBusyId] = useState<number | null>(null);
+  const editSheet = useKeyboardSheetLift();
+
+  /**
+   * One guard for all three write paths — confirm, save-edit and discard all
+   * commit or drop a row of this same list, and Confirm and Save write the very
+   * same row. The ref inside `useSubmitGuard` is what stops a same-tick double
+   * tap; the `busyId` state this replaced was read from the render closure, so
+   * it only disabled the buttons a re-render later.
+   */
+  const [submitting, runGuarded] = useSubmitGuard((work: () => Promise<void>) => work());
+
   const [editingId, setEditingId] = useState<number | undefined>(undefined);
   const [editAmount, setEditAmount] = useState<number | null>(null);
   const [editAmountText, setEditAmountText] = useState('');
@@ -56,18 +83,25 @@ export default function NotificationInboxScreen() {
 
   const closeEdit = () => setEditingId(undefined);
 
-  const confirmRow = async (id: number) => {
-    if (busyId !== null) return;
-    setBusyId(id);
-    try {
-      await commitPending(db, id);
-      refresh();
-    } catch (e) {
-      Alert.alert('Could not confirm', e instanceof Error ? e.message : 'Could not confirm.');
-    } finally {
-      setBusyId(null);
-    }
+  /**
+   * Cancel and Android's hardware back, which `useSubmitGuard` does not reach —
+   * it only guards the write paths themselves. Dismissing mid-save discards the
+   * typed amount/note/bucket while the write is still running, so a failure
+   * alert lands over the list with nothing left to correct and re-enter.
+   */
+  const requestCloseEdit = () => {
+    if (!submitting) closeEdit();
   };
+
+  const confirmRow = (id: number) =>
+    runGuarded(async () => {
+      try {
+        await commitPending(db, id);
+        refresh();
+      } catch (e) {
+        Alert.alert('Could not confirm', e instanceof Error ? e.message : 'Could not confirm.');
+      }
+    });
 
   const discardRow = (row: PendingNotification) => {
     Alert.alert('Discard?', merchantLabel(row), [
@@ -75,41 +109,39 @@ export default function NotificationInboxScreen() {
       {
         text: 'Discard',
         style: 'destructive',
-        onPress: async () => {
-          if (busyId !== null) return;
-          setBusyId(row.id);
-          try {
-            await discardPending(db, row.id);
-            refresh();
-          } catch (e) {
-            Alert.alert('Could not discard', e instanceof Error ? e.message : 'Could not discard.');
-          } finally {
-            setBusyId(null);
-          }
-        },
+        onPress: () =>
+          runGuarded(async () => {
+            try {
+              await discardPending(db, row.id);
+              refresh();
+            } catch (e) {
+              Alert.alert(
+                'Could not discard',
+                e instanceof Error ? e.message : 'Could not discard.',
+              );
+            }
+          }),
       },
     ]);
   };
 
-  const saveEdit = async () => {
+  const saveEdit = () => {
     if (editingId === undefined || editAmount === null || editBucketId === undefined) return;
-    if (busyId !== null) return;
-    setBusyId(editingId);
-    try {
-      await commitPending(db, editingId, {
-        amount: editAmount,
-        bucketId: editBucketId,
-        categoryId: editCategoryId,
-        note: editNote.trim() || undefined,
-        type: editType,
-      });
-      refresh();
-      closeEdit();
-    } catch (e) {
-      Alert.alert('Could not save', e instanceof Error ? e.message : 'Could not save.');
-    } finally {
-      setBusyId(null);
-    }
+    runGuarded(async () => {
+      try {
+        await commitPending(db, editingId, {
+          amount: editAmount,
+          bucketId: editBucketId,
+          categoryId: editCategoryId,
+          note: editNote.trim() || undefined,
+          type: editType,
+        });
+        refresh();
+        closeEdit();
+      } catch (e) {
+        Alert.alert('Could not save', e instanceof Error ? e.message : 'Could not save.');
+      }
+    });
   };
 
   const editValid = editAmount !== null && editBucketId !== undefined;
@@ -139,7 +171,7 @@ export default function NotificationInboxScreen() {
               key={row.id}
               row={row}
               bucketName={bucketName}
-              busy={busyId !== null}
+              busy={submitting}
               onConfirm={confirmRow}
               onEdit={openEdit}
               onDiscard={discardRow}
@@ -152,57 +184,84 @@ export default function NotificationInboxScreen() {
         visible={editingId !== undefined}
         animationType="slide"
         transparent
-        onRequestClose={closeEdit}
+        onRequestClose={requestCloseEdit}
       >
-        <View style={styles.backdrop}>
-          <SafeAreaView style={styles.sheet} edges={['bottom']}>
-            <View style={styles.header}>
-              <Text style={styles.title}>Edit</Text>
-              <Pressable onPress={closeEdit} hitSlop={8}>
-                <Text style={styles.close}>Cancel</Text>
-              </Pressable>
-            </View>
-            <ScrollView contentContainerStyle={formStyles.content} keyboardShouldPersistTaps="handled">
-              <AmountInput
-                key={editingId}
-                initialText={editAmountText}
-                onChangeAmount={setEditAmount}
-                autoFocus={false}
-              />
-              <Text style={formStyles.label}>Type</Text>
-              <Segmented
-                options={[
-                  { value: 'expense', label: 'Expense' },
-                  { value: 'income', label: 'Income' },
-                ]}
-                value={editType}
-                onChange={(value) => {
-                  setEditType(value);
-                  setEditCategoryId(undefined);
-                }}
-              />
-              <Text style={formStyles.label}>Bucket</Text>
-              <ChipRow items={bucketItems} selectedId={editBucketId} onSelect={setEditBucketId} />
-              <Text style={formStyles.label}>Category</Text>
-              <ChipRow
-                items={categoryItems}
-                selectedId={editCategoryId}
-                onSelect={(id) => setEditCategoryId(editCategoryId === id ? undefined : id)}
-              />
-              <Text style={formStyles.label}>Note</Text>
-              <TextInput
-                style={formStyles.textInput}
-                value={editNote}
-                onChangeText={setEditNote}
-                placeholder="Optional"
-                placeholderTextColor={colors.inkFaint}
-                testID="edit-note"
-              />
-              <View style={{ height: spacing.xs }} />
-              <SubmitButton label="Save" disabled={!editValid || busyId !== null} onPress={saveEdit} />
-            </ScrollView>
-          </SafeAreaView>
-        </View>
+        {/* Padding lifts the whole sheet; the sheet itself is content-sized, so
+            a flex:1 wrapper inside it would collapse. The KeyboardAvoidingView
+            pads the backdrop, and `useKeyboardSheetLift` pads the anchor with
+            whatever slice of keyboard the KAV did not manage to take off it —
+            on Android under edge-to-edge that is usually the whole thing. */}
+        <KeyboardAvoidingView style={styles.backdrop} behavior="padding">
+          <View
+            style={[styles.sheetAnchor, { paddingBottom: editSheet.lift }]}
+            onLayout={editSheet.onLayout}
+            testID="edit-sheet-anchor"
+          >
+            <SafeAreaView style={styles.sheet} edges={['bottom']}>
+              <View style={styles.header}>
+                <Text style={styles.title}>Edit</Text>
+                <Pressable
+                  onPress={requestCloseEdit}
+                  disabled={submitting}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: submitting }}
+                  testID="edit-cancel"
+                >
+                  <Text style={[styles.close, submitting && styles.closeDisabled]}>Cancel</Text>
+                </Pressable>
+              </View>
+              <ScrollView
+                contentContainerStyle={formStyles.content}
+                keyboardShouldPersistTaps="handled"
+              >
+                <AmountInput
+                  key={editingId}
+                  initialText={editAmountText}
+                  onChangeAmount={setEditAmount}
+                  autoFocus={false}
+                />
+                <Text style={formStyles.label}>Type</Text>
+                <Segmented
+                  options={[
+                    { value: 'expense', label: 'Expense' },
+                    { value: 'income', label: 'Income' },
+                  ]}
+                  value={editType}
+                  onChange={(value) => {
+                    setEditType(value);
+                    setEditCategoryId(undefined);
+                  }}
+                />
+                <Text style={formStyles.label}>Bucket</Text>
+                <ChipRow items={bucketItems} selectedId={editBucketId} onSelect={setEditBucketId} />
+                <Text style={formStyles.label}>Category</Text>
+                <ChipRow
+                  items={categoryItems}
+                  selectedId={editCategoryId}
+                  onSelect={(id) => setEditCategoryId(editCategoryId === id ? undefined : id)}
+                />
+                <Text style={formStyles.label}>Note</Text>
+                <FormTextInput
+                  style={formStyles.textInput}
+                  value={editNote}
+                  onChangeText={setEditNote}
+                  placeholder="Optional"
+                  placeholderTextColor={colors.inkFaint}
+                  returnKeyType="done"
+                  testID="edit-note"
+                />
+                <View style={{ height: spacing.xs }} />
+                <SubmitButton
+                  label="Save"
+                  disabled={!editValid}
+                  submitting={submitting}
+                  onPress={saveEdit}
+                />
+              </ScrollView>
+            </SafeAreaView>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
@@ -219,6 +278,7 @@ const styles = StyleSheet.create({
   },
   title: { fontFamily: fonts.display, fontSize: 22, color: colors.ink },
   close: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.gold },
+  closeDisabled: { opacity: 0.35 },
   content: { padding: spacing.md, gap: spacing.sm, paddingBottom: spacing.xl },
   empty: {
     fontFamily: fonts.body,
@@ -227,7 +287,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingVertical: spacing.xl,
   },
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
+  /**
+   * Separate from `backdrop` so the sheet has a box that shrinks when the
+   * KeyboardAvoidingView pads the backdrop — that shrink is what tells
+   * `useKeyboardSheetLift` how much of the keyboard is already handled.
+   */
+  sheetAnchor: { flex: 1, justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: colors.bg,
     borderTopLeftRadius: radii.lg,

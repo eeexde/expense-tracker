@@ -1,6 +1,14 @@
-import { useState } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { formStyles, Segmented, SubmitButton } from './form';
+import { useRef, useState } from 'react';
+import { Pressable, Text, TextInput, View } from 'react-native';
+import {
+  FormTextInput,
+  formStyles,
+  KeyboardAwareForm,
+  Segmented,
+  SIGNED_NUMERIC_KEYBOARD,
+  SubmitButton,
+  useSubmitGuard,
+} from './form';
 import { BUCKET_ICON_OPTIONS, Icon } from './Icon';
 import { parsePesoInput } from '@/lib/money';
 import { colors, radii, spacing } from '@/theme';
@@ -18,7 +26,7 @@ export interface BucketFormValues {
 interface Props {
   initial?: Partial<BucketFormValues>;
   submitLabel?: string;
-  onSubmit: (values: BucketFormValues) => void;
+  onSubmit: (values: BucketFormValues) => void | Promise<void>;
 }
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
@@ -43,24 +51,26 @@ export function BucketForm({ initial, submitLabel = 'Save', onSubmit }: Props) {
   const [balanceText, setBalanceText] = useState(
     initial?.startingBalance !== undefined ? (initial.startingBalance / 100).toFixed(2) : '',
   );
+  const colorRef = useRef<TextInput>(null);
+  const balanceRef = useRef<TextInput>(null);
 
   const startingBalance = balanceText.trim() === '' ? 0 : parseSignedPesoInput(balanceText);
   const colorValid = color.trim() === '' || HEX_RE.test(color.trim());
   const valid = name.trim() !== '' && startingBalance !== null && colorValid;
 
-  const submit = () => {
+  const [submitting, submit] = useSubmitGuard(async () => {
     if (!valid || startingBalance === null) return;
-    onSubmit({
+    await onSubmit({
       name: name.trim(),
       icon,
       color: color.trim() || undefined,
       type,
       startingBalance,
     });
-  };
+  });
 
   return (
-    <ScrollView contentContainerStyle={formStyles.content} keyboardShouldPersistTaps="handled">
+    <KeyboardAwareForm>
       <Segmented
         options={[
           { value: 'bucket', label: 'Bucket' },
@@ -76,12 +86,15 @@ export function BucketForm({ initial, submitLabel = 'Save', onSubmit }: Props) {
       />
 
       <Text style={formStyles.label}>Name</Text>
-      <TextInput
+      <FormTextInput
         style={formStyles.textInput}
         value={name}
         onChangeText={setName}
         placeholder={type === 'credit' ? 'e.g. BPI Credit Card' : 'e.g. Wallet'}
         placeholderTextColor={colors.inkFaint}
+        returnKeyType="next"
+        submitBehavior="submit"
+        onSubmitEditing={() => colorRef.current?.focus()}
         testID="bucket-name"
       />
 
@@ -115,20 +128,25 @@ export function BucketForm({ initial, submitLabel = 'Save', onSubmit }: Props) {
       </View>
 
       <Text style={formStyles.label}>Color (optional, hex)</Text>
-      <TextInput
+      <FormTextInput
+        ref={colorRef}
         style={[formStyles.textInput, !colorValid && formStyles.textInputError]}
         value={color}
         onChangeText={setColor}
         placeholder="#2E7D32"
         placeholderTextColor={colors.inkFaint}
         autoCapitalize="none"
+        returnKeyType="next"
+        submitBehavior="submit"
+        onSubmitEditing={() => balanceRef.current?.focus()}
         testID="bucket-color"
       />
 
       <Text style={formStyles.label}>
         {type === 'credit' ? 'Starting balance (negative = owed)' : 'Starting balance'}
       </Text>
-      <TextInput
+      <FormTextInput
+        ref={balanceRef}
         style={[
           formStyles.textInput,
           balanceText.trim() !== '' && startingBalance === null && formStyles.textInputError,
@@ -137,12 +155,18 @@ export function BucketForm({ initial, submitLabel = 'Save', onSubmit }: Props) {
         onChangeText={setBalanceText}
         placeholder={type === 'credit' ? '-0.00' : '0.00'}
         placeholderTextColor={colors.inkFaint}
-        keyboardType="numbers-and-punctuation"
+        keyboardType={SIGNED_NUMERIC_KEYBOARD}
+        returnKeyType="done"
         testID="bucket-balance"
       />
       <View style={{ height: spacing.xs }} />
 
-      <SubmitButton label={submitLabel} disabled={!valid} onPress={submit} />
-    </ScrollView>
+      <SubmitButton
+        label={submitLabel}
+        disabled={!valid}
+        submitting={submitting}
+        onPress={submit}
+      />
+    </KeyboardAwareForm>
   );
 }

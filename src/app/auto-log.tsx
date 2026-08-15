@@ -4,6 +4,7 @@ import {
   Alert,
   AppState,
   FlatList,
+  KeyboardAvoidingView,
   Modal,
   Pressable,
   ScrollView,
@@ -14,7 +15,13 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChipRow, formStyles, SubmitButton } from '@/components/form';
+import {
+  ChipRow,
+  formStyles,
+  SubmitButton,
+  useKeyboardSheetLift,
+  useSubmitGuard,
+} from '@/components/form';
 import { useDb } from '@/db/DbProvider';
 import { useAppQuery } from '@/db/hooks';
 import {
@@ -83,6 +90,11 @@ export default function AutoLogScreen() {
   const [ruleKeyword, setRuleKeyword] = useState('');
   const [ruleCategoryId, setRuleCategoryId] = useState<number | undefined>(undefined);
 
+  // Both sheets are pinned to the bottom of the screen, so their inputs sit
+  // squarely under the IME unless something lifts them.
+  const sourceSheet = useKeyboardSheetLift();
+  const ruleSheet = useKeyboardSheetLift();
+
   const openSourceModal = () => {
     setApps(getLaunchableApps());
     setPackageName('');
@@ -91,7 +103,7 @@ export default function AutoLogScreen() {
     setSourceModalOpen(true);
   };
 
-  const saveSource = async () => {
+  const [savingSource, saveSource] = useSubmitGuard(async () => {
     const trimmedPackage = packageName.trim();
     if (!trimmedPackage || bucketId === undefined) return;
     try {
@@ -106,7 +118,7 @@ export default function AutoLogScreen() {
     } catch (e) {
       Alert.alert('Could not save', e instanceof Error ? e.message : 'Could not add source.');
     }
-  };
+  });
 
   const toggleSource = async (id: number, enabled: boolean) => {
     try {
@@ -143,7 +155,7 @@ export default function AutoLogScreen() {
     setRuleModalOpen(true);
   };
 
-  const saveRule = async () => {
+  const [savingRule, saveRule] = useSubmitGuard(async () => {
     const trimmed = ruleKeyword.trim();
     if (!trimmed || ruleCategoryId === undefined) return;
     try {
@@ -153,7 +165,7 @@ export default function AutoLogScreen() {
     } catch (e) {
       Alert.alert('Could not save', e instanceof Error ? e.message : 'Could not add rule.');
     }
-  };
+  });
 
   const confirmDeleteRule = (id: number, label: string) => {
     Alert.alert('Remove rule?', `"${label}" will no longer auto-categorize.`, [
@@ -302,73 +314,91 @@ export default function AutoLogScreen() {
         transparent
         onRequestClose={() => setSourceModalOpen(false)}
       >
-        <View style={styles.backdrop}>
-          <SafeAreaView style={styles.sheet} edges={['bottom']}>
-            <View style={styles.header}>
-              <Text style={styles.title}>Add source</Text>
-              <Pressable onPress={() => setSourceModalOpen(false)} hitSlop={8}>
-                <Text style={styles.close}>Cancel</Text>
-              </Pressable>
-            </View>
-            <FlatList
-              data={visibleApps}
-              keyExtractor={(item) => item.packageName}
-              contentContainerStyle={formStyles.content}
-              keyboardShouldPersistTaps="handled"
-              ListHeaderComponent={
-                <View style={{ gap: spacing.sm }}>
-                  <Text style={formStyles.label}>Package</Text>
-                  <TextInput
-                    style={formStyles.textInput}
-                    value={packageName}
-                    onChangeText={setPackageName}
-                    placeholder="Search apps, or type a package name"
-                    placeholderTextColor={colors.inkFaint}
-                    autoCapitalize="none"
-                    testID="source-package"
-                  />
-                  <Text style={formStyles.label}>Installed apps</Text>
-                </View>
-              }
-              renderItem={({ item }) => {
-                const selected = item.packageName === packageName;
-                return (
-                  <Pressable
-                    style={[styles.appRow, selected && styles.appRowActive]}
-                    onPress={() => setPackageName(item.packageName)}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected }}
-                  >
-                    <Text style={styles.appLabel}>{item.label}</Text>
-                    <Text style={styles.appPkg}>{item.packageName}</Text>
-                  </Pressable>
-                );
-              }}
-              ListEmptyComponent={
-                <Text style={styles.hint}>
-                  {appQuery ? 'No apps match — the typed package name is used as-is.' : 'No launchable apps found.'}
-                </Text>
-              }
-              ListFooterComponent={
-                <View style={{ gap: spacing.sm }}>
-                  <Text style={formStyles.label}>Bucket</Text>
-                  <ChipRow items={bucketItems} selectedId={bucketId} onSelect={setBucketId} />
-                  <Text style={formStyles.label}>Keyword (optional)</Text>
-                  <TextInput
-                    style={formStyles.textInput}
-                    value={keyword}
-                    onChangeText={setKeyword}
-                    placeholder="e.g. card last 4 digits"
-                    placeholderTextColor={colors.inkFaint}
-                    testID="source-keyword"
-                  />
-                  <View style={{ height: spacing.xs }} />
-                  <SubmitButton label="Save" disabled={!sourceValid} onPress={saveSource} />
-                </View>
-              }
-            />
-          </SafeAreaView>
-        </View>
+        {/* Padding lifts the whole sheet; the sheet itself is content-sized, so
+            a flex:1 wrapper inside it would collapse. The KeyboardAvoidingView
+            pads the backdrop, and `useKeyboardSheetLift` pads the anchor with
+            whatever slice of keyboard the KAV did not manage to take off it.
+            How big that slice is depends on the *device*, not just the build:
+            an edge-to-edge Android (device SDK 35+) never resizes the dialog so
+            it is the whole keyboard, while Android 14 and below resizes it and
+            the slice is 0. Measured, never assumed — see `keyboardSlack`. */}
+        <KeyboardAvoidingView style={styles.backdrop} behavior="padding">
+          <View
+            style={[styles.sheetAnchor, { paddingBottom: sourceSheet.lift }]}
+            onLayout={sourceSheet.onLayout}
+          >
+            <SafeAreaView style={styles.sheet} edges={['bottom']}>
+              <View style={styles.header}>
+                <Text style={styles.title}>Add source</Text>
+                <Pressable onPress={() => setSourceModalOpen(false)} hitSlop={8}>
+                  <Text style={styles.close}>Cancel</Text>
+                </Pressable>
+              </View>
+              <FlatList
+                data={visibleApps}
+                keyExtractor={(item) => item.packageName}
+                contentContainerStyle={formStyles.content}
+                keyboardShouldPersistTaps="handled"
+                ListHeaderComponent={
+                  <View style={{ gap: spacing.sm }}>
+                    <Text style={formStyles.label}>Package</Text>
+                    <TextInput
+                      style={formStyles.textInput}
+                      value={packageName}
+                      onChangeText={setPackageName}
+                      placeholder="Search apps, or type a package name"
+                      placeholderTextColor={colors.inkFaint}
+                      autoCapitalize="none"
+                      testID="source-package"
+                    />
+                    <Text style={formStyles.label}>Installed apps</Text>
+                  </View>
+                }
+                renderItem={({ item }) => {
+                  const selected = item.packageName === packageName;
+                  return (
+                    <Pressable
+                      style={[styles.appRow, selected && styles.appRowActive]}
+                      onPress={() => setPackageName(item.packageName)}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                    >
+                      <Text style={styles.appLabel}>{item.label}</Text>
+                      <Text style={styles.appPkg}>{item.packageName}</Text>
+                    </Pressable>
+                  );
+                }}
+                ListEmptyComponent={
+                  <Text style={styles.hint}>
+                    {appQuery ? 'No apps match — the typed package name is used as-is.' : 'No launchable apps found.'}
+                  </Text>
+                }
+                ListFooterComponent={
+                  <View style={{ gap: spacing.sm }}>
+                    <Text style={formStyles.label}>Bucket</Text>
+                    <ChipRow items={bucketItems} selectedId={bucketId} onSelect={setBucketId} />
+                    <Text style={formStyles.label}>Keyword (optional)</Text>
+                    <TextInput
+                      style={formStyles.textInput}
+                      value={keyword}
+                      onChangeText={setKeyword}
+                      placeholder="e.g. card last 4 digits"
+                      placeholderTextColor={colors.inkFaint}
+                      testID="source-keyword"
+                    />
+                    <View style={{ height: spacing.xs }} />
+                    <SubmitButton
+                      label="Save"
+                      disabled={!sourceValid}
+                      submitting={savingSource}
+                      onPress={saveSource}
+                    />
+                  </View>
+                }
+              />
+            </SafeAreaView>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal
@@ -377,31 +407,42 @@ export default function AutoLogScreen() {
         transparent
         onRequestClose={() => setRuleModalOpen(false)}
       >
-        <View style={styles.backdrop}>
-          <SafeAreaView style={styles.sheet} edges={['bottom']}>
-            <View style={styles.header}>
-              <Text style={styles.title}>Add rule</Text>
-              <Pressable onPress={() => setRuleModalOpen(false)} hitSlop={8}>
-                <Text style={styles.close}>Cancel</Text>
-              </Pressable>
-            </View>
-            <ScrollView contentContainerStyle={formStyles.content} keyboardShouldPersistTaps="handled">
-              <Text style={formStyles.label}>Keyword</Text>
-              <TextInput
-                style={formStyles.textInput}
-                value={ruleKeyword}
-                onChangeText={setRuleKeyword}
-                placeholder="e.g. jollibee"
-                placeholderTextColor={colors.inkFaint}
-                testID="rule-keyword"
-              />
-              <Text style={formStyles.label}>Category</Text>
-              <ChipRow items={categoryItems} selectedId={ruleCategoryId} onSelect={setRuleCategoryId} />
-              <View style={{ height: spacing.xs }} />
-              <SubmitButton label="Save" disabled={!ruleValid} onPress={saveRule} />
-            </ScrollView>
-          </SafeAreaView>
-        </View>
+        <KeyboardAvoidingView style={styles.backdrop} behavior="padding">
+          <View
+            style={[styles.sheetAnchor, { paddingBottom: ruleSheet.lift }]}
+            onLayout={ruleSheet.onLayout}
+          >
+            <SafeAreaView style={styles.sheet} edges={['bottom']}>
+              <View style={styles.header}>
+                <Text style={styles.title}>Add rule</Text>
+                <Pressable onPress={() => setRuleModalOpen(false)} hitSlop={8}>
+                  <Text style={styles.close}>Cancel</Text>
+                </Pressable>
+              </View>
+              <ScrollView contentContainerStyle={formStyles.content} keyboardShouldPersistTaps="handled">
+                <Text style={formStyles.label}>Keyword</Text>
+                <TextInput
+                  style={formStyles.textInput}
+                  value={ruleKeyword}
+                  onChangeText={setRuleKeyword}
+                  placeholder="e.g. jollibee"
+                  placeholderTextColor={colors.inkFaint}
+                  returnKeyType="done"
+                  testID="rule-keyword"
+                />
+                <Text style={formStyles.label}>Category</Text>
+                <ChipRow items={categoryItems} selectedId={ruleCategoryId} onSelect={setRuleCategoryId} />
+                <View style={{ height: spacing.xs }} />
+                <SubmitButton
+                  label="Save"
+                  disabled={!ruleValid}
+                  submitting={savingRule}
+                  onPress={saveRule}
+                />
+              </ScrollView>
+            </SafeAreaView>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
@@ -485,7 +526,13 @@ const styles = StyleSheet.create({
   keywordChipText: { fontFamily: fonts.bodyMedium, fontSize: 11, color: colors.inkDim },
   empty: { fontFamily: fonts.body, fontSize: 14, color: colors.inkFaint, paddingVertical: spacing.sm },
   hint: { fontFamily: fonts.body, fontSize: 11, color: colors.inkFaint, marginTop: spacing.xs },
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
+  /**
+   * Separate from `backdrop` so the sheet has a box that shrinks when the
+   * KeyboardAvoidingView pads the backdrop — that shrink is what tells
+   * `useKeyboardSheetLift` how much of the keyboard is already handled.
+   */
+  sheetAnchor: { flex: 1, justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: colors.bg,
     borderTopLeftRadius: radii.lg,

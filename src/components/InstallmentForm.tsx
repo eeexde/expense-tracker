@@ -1,8 +1,17 @@
-import { useState } from 'react';
-import { ScrollView, Text, TextInput } from 'react-native';
+import { useRef, useState } from 'react';
+import { Text, TextInput } from 'react-native';
 import { Bucket } from '@/db/schema';
 import { centavosToInput, formatPeso, parsePesoInput } from '@/lib/money';
-import { ChipRow, formStyles, SubmitButton } from './form';
+import {
+  ChipRow,
+  FormTextInput,
+  formStyles,
+  KeyboardAwareForm,
+  NUMERIC_PAD_HAS_RETURN_KEY,
+  NUMERIC_PAD_NEXT,
+  SubmitButton,
+  useSubmitGuard,
+} from './form';
 import { colors } from '@/theme';
 
 export interface InstallmentFormValues {
@@ -18,7 +27,7 @@ interface Props {
   initial?: InstallmentFormValues;
   /** Centavos already paid — the plan total can't be edited below this. */
   amountPaid?: number;
-  onSubmit: (values: InstallmentFormValues) => void;
+  onSubmit: (values: InstallmentFormValues) => void | Promise<void>;
 }
 
 /** Shared by the add and edit installment screens. */
@@ -30,6 +39,9 @@ export function InstallmentForm({ buckets, initial, amountPaid = 0, onSubmit }: 
   const [monthsText, setMonthsText] = useState(initial ? String(initial.monthsTotal) : '');
   const [dayDueText, setDayDueText] = useState(initial ? String(initial.dayDue) : '15');
   const [bucketId, setBucketId] = useState<number | undefined>(initial?.bucketId);
+  const monthlyRef = useRef<TextInput>(null);
+  const monthsRef = useRef<TextInput>(null);
+  const dayDueRef = useRef<TextInput>(null);
 
   const monthlyDue = parsePesoInput(monthlyText);
   const monthsTotal = Number(monthsText);
@@ -46,24 +58,28 @@ export function InstallmentForm({ buckets, initial, amountPaid = 0, onSubmit }: 
     bucketId !== undefined &&
     !belowPaid;
 
-  const submit = () => {
+  const [submitting, submit] = useSubmitGuard(async () => {
     if (!valid || monthlyDue === null || bucketId === undefined) return;
-    onSubmit({ itemName: itemName.trim(), monthlyDue, monthsTotal, dayDue, bucketId });
-  };
+    await onSubmit({ itemName: itemName.trim(), monthlyDue, monthsTotal, dayDue, bucketId });
+  });
 
   return (
-    <ScrollView contentContainerStyle={formStyles.content} keyboardShouldPersistTaps="handled">
+    <KeyboardAwareForm>
       <Text style={formStyles.label}>Item</Text>
-      <TextInput
+      <FormTextInput
         style={formStyles.textInput}
         value={itemName}
         onChangeText={setItemName}
         placeholder="e.g. Washing machine (Home Credit)"
         placeholderTextColor={colors.inkFaint}
+        returnKeyType="next"
+        submitBehavior="submit"
+        onSubmitEditing={() => monthlyRef.current?.focus()}
       />
 
       <Text style={formStyles.label}>Monthly payment</Text>
-      <TextInput
+      <FormTextInput
+        ref={monthlyRef}
         style={[
           formStyles.textInput,
           monthlyText.trim() !== '' && monthlyDue === null && formStyles.textInputError,
@@ -73,10 +89,14 @@ export function InstallmentForm({ buckets, initial, amountPaid = 0, onSubmit }: 
         placeholder="0.00"
         placeholderTextColor={colors.inkFaint}
         keyboardType="decimal-pad"
+        {...(NUMERIC_PAD_HAS_RETURN_KEY
+          ? { ...NUMERIC_PAD_NEXT, onSubmitEditing: () => monthsRef.current?.focus() }
+          : null)}
       />
 
       <Text style={formStyles.label}>Number of months</Text>
-      <TextInput
+      <FormTextInput
+        ref={monthsRef}
         style={[
           formStyles.textInput,
           monthsText.trim() !== '' && !monthsValid && formStyles.textInputError,
@@ -86,6 +106,9 @@ export function InstallmentForm({ buckets, initial, amountPaid = 0, onSubmit }: 
         placeholder="e.g. 12"
         placeholderTextColor={colors.inkFaint}
         keyboardType="number-pad"
+        {...(NUMERIC_PAD_HAS_RETURN_KEY
+          ? { ...NUMERIC_PAD_NEXT, onSubmitEditing: () => dayDueRef.current?.focus() }
+          : null)}
       />
 
       {total !== null && (
@@ -97,7 +120,8 @@ export function InstallmentForm({ buckets, initial, amountPaid = 0, onSubmit }: 
       )}
 
       <Text style={formStyles.label}>Day of month (1–31)</Text>
-      <TextInput
+      <FormTextInput
+        ref={dayDueRef}
         style={[formStyles.textInput, !dayValid && formStyles.textInputError]}
         value={dayDueText}
         onChangeText={setDayDueText}
@@ -111,8 +135,8 @@ export function InstallmentForm({ buckets, initial, amountPaid = 0, onSubmit }: 
         onSelect={setBucketId}
       />
 
-      <SubmitButton label="Save" disabled={!valid} onPress={submit} />
-    </ScrollView>
+      <SubmitButton label="Save" disabled={!valid} submitting={submitting} onPress={submit} />
+    </KeyboardAwareForm>
   );
 }
 

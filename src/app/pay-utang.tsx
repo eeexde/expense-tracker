@@ -1,9 +1,16 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { eq } from 'drizzle-orm';
-import { ChipRow, formStyles, SubmitButton } from '@/components/form';
+import {
+  ChipRow,
+  FormTextInput,
+  formStyles,
+  KeyboardAwareForm,
+  SubmitButton,
+  useSubmitGuard,
+} from '@/components/form';
 import { useDb } from '@/db/DbProvider';
 import { useAppQuery } from '@/db/hooks';
 import { buckets as bucketsTable, utang as utangTable } from '@/db/schema';
@@ -34,7 +41,7 @@ export default function PayUtangScreen() {
   const overpay = amount !== null && remaining !== undefined && amount > remaining;
   const valid = amount !== null && bucketId !== undefined && !overpay;
 
-  const save = async () => {
+  const [submitting, save] = useSubmitGuard(async () => {
     if (!valid || amount === null || bucketId === undefined) return;
     try {
       await addUtangPayment(db, { utangId, amount, date: todayLocal(), bucketId });
@@ -43,7 +50,7 @@ export default function PayUtangScreen() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  };
+  });
 
   if (!debt || remaining === undefined || !buckets) {
     return <SafeAreaView style={formStyles.screen} />;
@@ -56,13 +63,13 @@ export default function PayUtangScreen() {
       <Text style={formStyles.title}>
         {isIOwe ? `Pay ${debt.personName}` : `Payment from ${debt.personName}`}
       </Text>
-      <ScrollView contentContainerStyle={formStyles.content} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareForm>
         <Text style={styles.remaining}>
           Remaining: <Text style={styles.remainingAmount}>{formatPeso(remaining)}</Text>
         </Text>
 
         <Text style={formStyles.label}>Payment amount</Text>
-        <TextInput
+        <FormTextInput
           style={[
             formStyles.textInput,
             (overpay || (amountText.trim() !== '' && amount === null)) && formStyles.textInputError,
@@ -72,6 +79,7 @@ export default function PayUtangScreen() {
           placeholder="0.00"
           placeholderTextColor={colors.inkFaint}
           keyboardType="decimal-pad"
+          returnKeyType="done"
         />
         {overpay && <Text style={styles.error}>Exceeds the remaining balance.</Text>}
 
@@ -83,8 +91,13 @@ export default function PayUtangScreen() {
         />
 
         {error && <Text style={styles.error}>{error}</Text>}
-        <SubmitButton label="Record payment" disabled={!valid} onPress={save} />
-      </ScrollView>
+        <SubmitButton
+          label="Record payment"
+          disabled={!valid}
+          submitting={submitting}
+          onPress={save}
+        />
+      </KeyboardAwareForm>
     </SafeAreaView>
   );
 }

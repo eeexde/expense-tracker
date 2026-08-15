@@ -92,8 +92,17 @@ export default function SettingsScreen() {
     <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
       <View style={styles.header}>
         <Text style={styles.title}>Settings</Text>
-        <Pressable onPress={() => router.back()} hitSlop={8}>
-          <Text style={styles.close}>Done</Text>
+        {/* Leaving mid-import would drop the completion status on an unmounted
+            screen, so the user would never learn whether the destructive
+            restore finished. Both actions are short; hold Done until then. */}
+        <Pressable
+          onPress={() => router.back()}
+          hitSlop={8}
+          disabled={busy !== null}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: busy !== null }}
+        >
+          <Text style={[styles.close, busy !== null && styles.closeDisabled]}>Done</Text>
         </Pressable>
       </View>
 
@@ -169,6 +178,7 @@ const styles = StyleSheet.create({
   },
   title: { fontFamily: fonts.display, fontSize: 22, color: colors.ink },
   close: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.gold },
+  closeDisabled: { color: colors.inkFaint },
   content: { padding: spacing.md, gap: spacing.sm },
   sectionTitle: {
     fontFamily: fonts.bodyBold,

@@ -1,7 +1,16 @@
-import { useState } from 'react';
-import { ScrollView, Text, TextInput } from 'react-native';
+import { useRef, useState } from 'react';
+import { Text, TextInput } from 'react-native';
 import { centavosToInput, formatPeso, parsePesoInput } from '@/lib/money';
-import { formStyles, Segmented, SubmitButton } from './form';
+import {
+  FormTextInput,
+  formStyles,
+  KeyboardAwareForm,
+  NUMERIC_PAD_HAS_RETURN_KEY,
+  NUMERIC_PAD_NEXT,
+  Segmented,
+  SubmitButton,
+  useSubmitGuard,
+} from './form';
 import { colors } from '@/theme';
 
 export interface UtangFormValues {
@@ -15,7 +24,7 @@ interface Props {
   initial?: UtangFormValues;
   /** Centavos already paid — the amount can't drop below this, direction locks. */
   paid?: number;
-  onSubmit: (values: UtangFormValues) => void;
+  onSubmit: (values: UtangFormValues) => void | Promise<void>;
 }
 
 /** Shared by the add and edit utang screens. */
@@ -26,24 +35,26 @@ export function UtangForm({ initial, paid = 0, onSubmit }: Props) {
     initial ? centavosToInput(initial.originalAmount) : '',
   );
   const [note, setNote] = useState(initial?.note ?? '');
+  const amountRef = useRef<TextInput>(null);
+  const noteRef = useRef<TextInput>(null);
 
   const directionLocked = paid > 0;
   const amount = parsePesoInput(amountText);
   const belowPaid = amount !== null && amount < paid;
   const valid = personName.trim() !== '' && amount !== null && !belowPaid;
 
-  const submit = () => {
+  const [submitting, submit] = useSubmitGuard(async () => {
     if (!valid || amount === null) return;
-    onSubmit({
+    await onSubmit({
       personName: personName.trim(),
       direction,
       originalAmount: amount,
       note: note.trim() || undefined,
     });
-  };
+  });
 
   return (
-    <ScrollView contentContainerStyle={formStyles.content} keyboardShouldPersistTaps="handled">
+    <KeyboardAwareForm>
       <Segmented
         options={[
           { value: 'iOwe', label: 'I owe' },
@@ -59,16 +70,20 @@ export function UtangForm({ initial, paid = 0, onSubmit }: Props) {
       )}
 
       <Text style={formStyles.label}>{direction === 'iOwe' ? 'Who I owe' : 'Who owes me'}</Text>
-      <TextInput
+      <FormTextInput
         style={formStyles.textInput}
         value={personName}
         onChangeText={setPersonName}
         placeholder="Name"
         placeholderTextColor={colors.inkFaint}
+        returnKeyType="next"
+        submitBehavior="submit"
+        onSubmitEditing={() => amountRef.current?.focus()}
       />
 
       <Text style={formStyles.label}>Amount</Text>
-      <TextInput
+      <FormTextInput
+        ref={amountRef}
         style={[
           formStyles.textInput,
           amountText.trim() !== '' && amount === null && formStyles.textInputError,
@@ -79,22 +94,27 @@ export function UtangForm({ initial, paid = 0, onSubmit }: Props) {
         placeholder="0.00"
         placeholderTextColor={colors.inkFaint}
         keyboardType="decimal-pad"
+        {...(NUMERIC_PAD_HAS_RETURN_KEY
+          ? { ...NUMERIC_PAD_NEXT, onSubmitEditing: () => noteRef.current?.focus() }
+          : null)}
       />
       {belowPaid && (
         <Text style={errorHint}>Amount is below the {formatPeso(paid)} already paid.</Text>
       )}
 
       <Text style={formStyles.label}>Note</Text>
-      <TextInput
+      <FormTextInput
+        ref={noteRef}
         style={formStyles.textInput}
         value={note}
         onChangeText={setNote}
         placeholder="Optional"
         placeholderTextColor={colors.inkFaint}
+        returnKeyType="done"
       />
 
-      <SubmitButton label="Save" disabled={!valid} onPress={submit} />
-    </ScrollView>
+      <SubmitButton label="Save" disabled={!valid} submitting={submitting} onPress={submit} />
+    </KeyboardAwareForm>
   );
 }
 

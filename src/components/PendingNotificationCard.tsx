@@ -101,18 +101,26 @@ const styles = StyleSheet.create({
   amount: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.ink },
   sub: { fontFamily: fonts.body, fontSize: 13, color: colors.inkFaint },
   expiry: { fontFamily: fonts.body, fontSize: 12, color: colors.gold },
-  actionsRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
+  actionsRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
   actionBtn: {
     flex: 1,
     borderRadius: radii.sm,
     paddingVertical: spacing.sm,
+    minHeight: 44,
     alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
   },
   actionBtnDisabled: { opacity: 0.35 },
   confirmBtn: { backgroundColor: colors.gold, borderColor: colors.gold },
   editBtn: { backgroundColor: colors.surfaceRaised, borderColor: colors.border },
-  discardBtn: { backgroundColor: colors.surfaceRaised, borderColor: colors.border },
+  // Extra gap in front of the destructive action so a mis-tap on Edit doesn't
+  // land on Discard.
+  discardBtn: {
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.border,
+    marginLeft: spacing.sm,
+  },
   actionText: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.ink },
   confirmText: { color: colors.bg },
   discardText: { color: colors.danger },
