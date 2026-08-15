@@ -1,5 +1,5 @@
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   Alert,
   AppState,
@@ -11,15 +11,17 @@ import {
   StyleSheet,
   Switch,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   ChipRow,
   formStyles,
+  FormTextInput,
+  RevealFieldProvider,
   SubmitButton,
   useKeyboardSheetLift,
+  useRevealField,
   useSubmitGuard,
 } from '@/components/form';
 import { useDb } from '@/db/DbProvider';
@@ -94,6 +96,27 @@ export default function AutoLogScreen() {
   // squarely under the IME unless something lifts them.
   const sourceSheet = useKeyboardSheetLift();
   const ruleSheet = useKeyboardSheetLift();
+  // The lift clears each *sheet* of the keyboard; the reveal clears a *field*
+  // of its sheet's own scroll viewport, which the 90% cap keeps short. The
+  // source sheet's fields ride in a FlatList header/footer with the whole app
+  // list between them, so that one can be scrolled a long way out of sight.
+  // `slack: 0` — a lifted sheet has no keyboard overlapping it at all.
+  const sourceListRef = useRef<FlatList<LaunchableApp>>(null);
+  const sourceViewportRef = useRef<View>(null);
+  const sourceReveal = useRevealField({
+    scrollRef: sourceListRef,
+    viewportRef: sourceViewportRef,
+    keyboardHeight: sourceSheet.keyboardHeight,
+    slack: 0,
+  });
+  const ruleScrollRef = useRef<ScrollView>(null);
+  const ruleViewportRef = useRef<View>(null);
+  const ruleReveal = useRevealField({
+    scrollRef: ruleScrollRef,
+    viewportRef: ruleViewportRef,
+    keyboardHeight: ruleSheet.keyboardHeight,
+    slack: 0,
+  });
 
   const openSourceModal = () => {
     setApps(getLaunchableApps());
@@ -334,68 +357,81 @@ export default function AutoLogScreen() {
                   <Text style={styles.close}>Cancel</Text>
                 </Pressable>
               </View>
-              <FlatList
-                data={visibleApps}
-                keyExtractor={(item) => item.packageName}
-                contentContainerStyle={formStyles.content}
-                keyboardShouldPersistTaps="handled"
-                ListHeaderComponent={
-                  <View style={{ gap: spacing.sm }}>
-                    <Text style={formStyles.label}>Package</Text>
-                    <TextInput
-                      style={formStyles.textInput}
-                      value={packageName}
-                      onChangeText={setPackageName}
-                      placeholder="Search apps, or type a package name"
-                      placeholderTextColor={colors.inkFaint}
-                      autoCapitalize="none"
-                      testID="source-package"
-                    />
-                    <Text style={formStyles.label}>Installed apps</Text>
-                  </View>
-                }
-                renderItem={({ item }) => {
-                  const selected = item.packageName === packageName;
-                  return (
-                    <Pressable
-                      style={[styles.appRow, selected && styles.appRowActive]}
-                      onPress={() => setPackageName(item.packageName)}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected }}
-                    >
-                      <Text style={styles.appLabel}>{item.label}</Text>
-                      <Text style={styles.appPkg}>{item.packageName}</Text>
-                    </Pressable>
-                  );
-                }}
-                ListEmptyComponent={
-                  <Text style={styles.hint}>
-                    {appQuery ? 'No apps match — the typed package name is used as-is.' : 'No launchable apps found.'}
-                  </Text>
-                }
-                ListFooterComponent={
-                  <View style={{ gap: spacing.sm }}>
-                    <Text style={formStyles.label}>Bucket</Text>
-                    <ChipRow items={bucketItems} selectedId={bucketId} onSelect={setBucketId} />
-                    <Text style={formStyles.label}>Keyword (optional)</Text>
-                    <TextInput
-                      style={formStyles.textInput}
-                      value={keyword}
-                      onChangeText={setKeyword}
-                      placeholder="e.g. card last 4 digits"
-                      placeholderTextColor={colors.inkFaint}
-                      testID="source-keyword"
-                    />
-                    <View style={{ height: spacing.xs }} />
-                    <SubmitButton
-                      label="Save"
-                      disabled={!sourceValid}
-                      submitting={savingSource}
-                      onPress={saveSource}
-                    />
-                  </View>
-                }
-              />
+              <RevealFieldProvider reveal={sourceReveal.reveal}>
+                <View
+                  ref={sourceViewportRef}
+                  style={formStyles.scrollViewport}
+                  // Android flattens layout-only Views, which would leave
+                  // nothing to measure the viewport against.
+                  collapsable={false}
+                  testID="source-sheet-viewport"
+                >
+                  <FlatList
+                    ref={sourceListRef}
+                    data={visibleApps}
+                    keyExtractor={(item) => item.packageName}
+                    contentContainerStyle={formStyles.content}
+                    keyboardShouldPersistTaps="handled"
+                    {...sourceReveal.scrollProps}
+                    ListHeaderComponent={
+                      <View style={{ gap: spacing.sm }}>
+                        <Text style={formStyles.label}>Package</Text>
+                        <FormTextInput
+                          style={formStyles.textInput}
+                          value={packageName}
+                          onChangeText={setPackageName}
+                          placeholder="Search apps, or type a package name"
+                          placeholderTextColor={colors.inkFaint}
+                          autoCapitalize="none"
+                          testID="source-package"
+                        />
+                        <Text style={formStyles.label}>Installed apps</Text>
+                      </View>
+                    }
+                    renderItem={({ item }) => {
+                      const selected = item.packageName === packageName;
+                      return (
+                        <Pressable
+                          style={[styles.appRow, selected && styles.appRowActive]}
+                          onPress={() => setPackageName(item.packageName)}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected }}
+                        >
+                          <Text style={styles.appLabel}>{item.label}</Text>
+                          <Text style={styles.appPkg}>{item.packageName}</Text>
+                        </Pressable>
+                      );
+                    }}
+                    ListEmptyComponent={
+                      <Text style={styles.hint}>
+                        {appQuery ? 'No apps match — the typed package name is used as-is.' : 'No launchable apps found.'}
+                      </Text>
+                    }
+                    ListFooterComponent={
+                      <View style={{ gap: spacing.sm }}>
+                        <Text style={formStyles.label}>Bucket</Text>
+                        <ChipRow items={bucketItems} selectedId={bucketId} onSelect={setBucketId} />
+                        <Text style={formStyles.label}>Keyword (optional)</Text>
+                        <FormTextInput
+                          style={formStyles.textInput}
+                          value={keyword}
+                          onChangeText={setKeyword}
+                          placeholder="e.g. card last 4 digits"
+                          placeholderTextColor={colors.inkFaint}
+                          testID="source-keyword"
+                        />
+                        <View style={{ height: spacing.xs }} />
+                        <SubmitButton
+                          label="Save"
+                          disabled={!sourceValid}
+                          submitting={savingSource}
+                          onPress={saveSource}
+                        />
+                      </View>
+                    }
+                  />
+                </View>
+              </RevealFieldProvider>
             </SafeAreaView>
           </View>
         </KeyboardAvoidingView>
@@ -419,27 +455,47 @@ export default function AutoLogScreen() {
                   <Text style={styles.close}>Cancel</Text>
                 </Pressable>
               </View>
-              <ScrollView contentContainerStyle={formStyles.content} keyboardShouldPersistTaps="handled">
-                <Text style={formStyles.label}>Keyword</Text>
-                <TextInput
-                  style={formStyles.textInput}
-                  value={ruleKeyword}
-                  onChangeText={setRuleKeyword}
-                  placeholder="e.g. jollibee"
-                  placeholderTextColor={colors.inkFaint}
-                  returnKeyType="done"
-                  testID="rule-keyword"
-                />
-                <Text style={formStyles.label}>Category</Text>
-                <ChipRow items={categoryItems} selectedId={ruleCategoryId} onSelect={setRuleCategoryId} />
-                <View style={{ height: spacing.xs }} />
-                <SubmitButton
-                  label="Save"
-                  disabled={!ruleValid}
-                  submitting={savingRule}
-                  onPress={saveRule}
-                />
-              </ScrollView>
+              <RevealFieldProvider reveal={ruleReveal.reveal}>
+                <View
+                  ref={ruleViewportRef}
+                  style={formStyles.scrollViewport}
+                  // Android flattens layout-only Views, which would leave
+                  // nothing to measure the viewport against.
+                  collapsable={false}
+                  testID="rule-sheet-viewport"
+                >
+                  <ScrollView
+                    ref={ruleScrollRef}
+                    contentContainerStyle={formStyles.content}
+                    keyboardShouldPersistTaps="handled"
+                    {...ruleReveal.scrollProps}
+                  >
+                    <Text style={formStyles.label}>Keyword</Text>
+                    <FormTextInput
+                      style={formStyles.textInput}
+                      value={ruleKeyword}
+                      onChangeText={setRuleKeyword}
+                      placeholder="e.g. jollibee"
+                      placeholderTextColor={colors.inkFaint}
+                      returnKeyType="done"
+                      testID="rule-keyword"
+                    />
+                    <Text style={formStyles.label}>Category</Text>
+                    <ChipRow
+                      items={categoryItems}
+                      selectedId={ruleCategoryId}
+                      onSelect={setRuleCategoryId}
+                    />
+                    <View style={{ height: spacing.xs }} />
+                    <SubmitButton
+                      label="Save"
+                      disabled={!ruleValid}
+                      submitting={savingRule}
+                      onPress={saveRule}
+                    />
+                  </ScrollView>
+                </View>
+              </RevealFieldProvider>
             </SafeAreaView>
           </View>
         </KeyboardAvoidingView>

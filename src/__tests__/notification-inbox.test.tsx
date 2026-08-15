@@ -1,5 +1,13 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { Alert, Keyboard, KeyboardEvent, Platform, StyleSheet } from 'react-native';
+import {
+  Alert,
+  Keyboard,
+  KeyboardEvent,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 import {
   buckets,
   notificationSources,
@@ -47,6 +55,33 @@ async function layoutAnchor(height: number) {
 
 function anchorPaddingBottom(): number {
   return StyleSheet.flatten(screen.getByTestId('edit-sheet-anchor').props.style).paddingBottom;
+}
+
+/* --------------------------------------------------------------------------
+ * Field reveal
+ *
+ * RN's jest preset assigns one shared `MockNativeMethods` object onto the
+ * View/TextInput/ScrollView mock prototypes, so `measureInWindow` is a single
+ * no-op `jest.fn()` behind every node — which means the reveal's two nested
+ * measure callbacks never run and the whole path is invisible to a test that
+ * does not stub it. Same story for `scrollTo`, which is what makes it an
+ * assertable outcome here.
+ * ------------------------------------------------------------------------ */
+
+type Measurable = { prototype: { measureInWindow: jest.Mock } };
+const measureInWindow = (View as unknown as Measurable).prototype.measureInWindow;
+const scrollTo = (ScrollView as unknown as { prototype: { scrollTo: jest.Mock } }).prototype
+  .scrollTo;
+
+/** Window-coordinate boxes (`x, y, width, height`) keyed by the node's testID. */
+function stubGeometry(boxes: Record<string, [number, number, number, number]>) {
+  measureInWindow.mockImplementation(function (
+    this: { props?: { testID?: string } },
+    callback: (x: number, y: number, width: number, height: number) => void,
+  ) {
+    const box = boxes[this?.props?.testID ?? ''];
+    if (box) callback(...box);
+  });
 }
 
 /** Seeds one pending row with its bucket + source and returns that row's id. */
@@ -101,8 +136,20 @@ beforeEach(() => {
   mockCommitPending.mockImplementation(realNotificationRepo.commitPending);
 });
 
-afterEach(() => {
+afterEach(async () => {
   setPlatform(realPlatform);
+  // `Keyboard` keeps the last event it saw on the module singleton, and
+  // `useKeyboardHeight` seeds itself from it — so a test that leaves the
+  // keyboard up hands the next one a form that is already at that height, and
+  // its own `showKeyboard` then changes nothing and fires no effect.
+  await act(async () => {
+    keyboardEmitter.emit('keyboardWillHide');
+    keyboardEmitter.emit('keyboardDidHide');
+  });
+  // Shared across every mocked native component in this module registry, so
+  // leaving an implementation behind would leak into the next test.
+  measureInWindow.mockReset();
+  scrollTo.mockReset();
 });
 
 /**
@@ -235,6 +282,54 @@ describe('notification inbox edit sheet', () => {
       releaseCommit();
     });
     await waitFor(() => expect(screen.queryByTestId('edit-note')).toBeNull());
+  });
+
+  /**
+   * The sheet lift clears the *sheet* of the keyboard, which is all it ever
+   * did. Note is the last of five stacked fields inside a sheet capped at 90%
+   * of the screen, so it can still sit below the sheet's own scroll viewport —
+   * the original "typing blind" report, unfixed until the sheet mounted a
+   * reveal context of its own. `FormTextInput` was already in place here, but
+   * with no `RevealFieldProvider` above it the context default is null and its
+   * `onFocus` hook was a guaranteed no-op.
+   */
+  it('scrolls the note field into view when it takes focus', async () => {
+    await openEditSheet();
+    stubGeometry({
+      // The sheet's scroll viewport ends at 500; the note's bottom edge is 8
+      // past it, and wants REVEAL_MARGIN (16) of clearance on top.
+      'edit-sheet-viewport': [0, 300, 400, 200],
+      'edit-note': [0, 460, 400, 48],
+    });
+
+    await fireEvent(screen.getByTestId('edit-note'), 'focus');
+
+    expect(scrollTo).toHaveBeenCalledWith({ y: 24, animated: true });
+  });
+
+  it('reveals the focused note again once the keyboard height lands', async () => {
+    setPlatform('android');
+    await openEditSheet();
+
+    // The tap comes first, while the sheet still has the whole screen and the
+    // note is comfortably inside it.
+    stubGeometry({
+      'edit-sheet-viewport': [0, 100, 400, 600],
+      'edit-note': [0, 460, 400, 48],
+    });
+    await fireEvent(screen.getByTestId('edit-note'), 'focus');
+    expect(scrollTo).not.toHaveBeenCalled();
+
+    // Then the IME arrives, the sheet lifts, and its viewport loses the bottom
+    // 200 — which is the moment the note goes under.
+    stubGeometry({
+      'edit-sheet-viewport': [0, 100, 400, 400],
+      'edit-note': [0, 460, 400, 48],
+    });
+    await layoutAnchor(800);
+    await showKeyboard(312);
+
+    expect(scrollTo).toHaveBeenCalledWith({ y: 24, animated: true });
   });
 
   it('still saves what was typed into the note field', async () => {

@@ -26,9 +26,9 @@ export interface AppQueryResult<T> {
  * Run a query against the app DB, re-running whenever `refresh()` bumps the
  * provider version, `deps` change, or `retry()` is called.
  *
- * Use this over `useAppQuery` wherever the screen can render an inline retry —
- * nothing here throws, so a failure costs the failed section rather than the
- * whole navigator.
+ * Use this over `useAppQuery` wherever the screen can render an inline retry:
+ * neither hook throws, but this one hands back the failure and a `retry()` so
+ * the section can say what went wrong instead of spinning.
  */
 export function useAppQueryResult<T>(
   query: (db: AppDb) => Promise<T>,
@@ -74,25 +74,33 @@ export function useAppQueryResult<T>(
 
 /**
  * `useAppQueryResult` for the callers that have nothing to render but the data.
- * Returns undefined while loading.
+ * Returns the last successful result, or undefined until one lands.
  *
- * A rejection only reaches the root `ErrorBoundary` when there is no data at
- * all — i.e. the very first load failed, so the screen would otherwise spin
- * forever. Once a result has landed, a later failure is swallowed in favour of
- * the last good one: the alternative is that one rejected `refresh()` replaces
- * the whole app with the recovery screen, whose "Try again" remounts the
- * navigator and drops the user at the initial route, discarding any half-filled
- * modal form on the way. No realistic path rejects today (the db handle is
- * opened once and cached, and migration failures throw before it exists) — this
- * is hardening, not a live bug.
+ * Deliberately does *not* throw. A rejection here reaches nobody: the caller
+ * keeps whatever it last had, and a caller that never had anything keeps
+ * rendering its own loading state.
+ *
+ * Rethrowing looks like the more honest option — a failed first load otherwise
+ * spins forever — but the only thing standing above these screens is the root
+ * `ErrorBoundary`, which sits above the router *and* the `DbProvider`. So a
+ * throw does not surface an error next to the dead section; it replaces the
+ * entire app, and its "Try again" remounts the navigator and drops the user at
+ * the initial route, discarding any half-filled modal form on the way —
+ * `pay-utang`'s typed amount, `notification-inbox`'s edited note. Trading a
+ * common mild failure (a spinner) for a rare severe one (the form is gone) is
+ * the wrong way round.
+ *
+ * A screen that can do better than a spinner should use `useAppQueryResult`
+ * directly and render a `QueryErrorNotice` — an inline retry that re-runs just
+ * that query and costs the section rather than the navigator. The tabs do.
+ *
+ * No realistic path rejects today either (the db handle is opened once and
+ * cached, and migration failures throw before it exists), so this is about
+ * which way an unexpected failure degrades, not a live bug.
  */
 export function useAppQuery<T>(
   query: (db: AppDb) => Promise<T>,
   deps: unknown[] = [],
 ): T | undefined {
-  const { data, error } = useAppQueryResult(query, deps);
-
-  if (error !== null && data === undefined) throw error;
-
-  return data;
+  return useAppQueryResult(query, deps).data;
 }

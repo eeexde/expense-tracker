@@ -11,6 +11,7 @@ import {
   FormTextInput,
   KeyboardAwareForm,
   SIGNED_NUMERIC_KEYBOARD,
+  SubmitButton,
   useSubmitGuard,
 } from './form';
 import { Icon } from './Icon';
@@ -320,16 +321,7 @@ export function TransactionForm({
         </View>
       )}
 
-      <Pressable
-        style={[styles.submit, (!valid || submitting) && styles.submitDisabled]}
-        onPress={submit}
-        disabled={!valid || submitting}
-        accessibilityRole="button"
-        accessibilityState={{ disabled: !valid || submitting, busy: submitting }}
-        testID="submit"
-      >
-        <Text style={styles.submitText}>{submitLabel}</Text>
-      </Pressable>
+      <SubmitButton label={submitLabel} disabled={!valid} submitting={submitting} onPress={submit} />
     </KeyboardAwareForm>
   );
 }
@@ -399,13 +391,4 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   receiptNote: { fontFamily: fonts.body, fontSize: 13, color: colors.income },
-  submit: {
-    backgroundColor: colors.gold,
-    borderRadius: radii.md,
-    padding: spacing.md,
-    alignItems: 'center',
-    marginTop: spacing.lg,
-  },
-  submitDisabled: { opacity: 0.35 },
-  submitText: { fontFamily: fonts.bodyBold, fontSize: 16, color: colors.bg },
 });

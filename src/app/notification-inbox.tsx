@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -17,9 +17,11 @@ import {
   ChipRow,
   formStyles,
   FormTextInput,
+  RevealFieldProvider,
   Segmented,
   SubmitButton,
   useKeyboardSheetLift,
+  useRevealField,
   useSubmitGuard,
 } from '@/components/form';
 import {
@@ -49,6 +51,24 @@ export default function NotificationInboxScreen() {
   const bucketById = new Map((allBuckets ?? []).map((b) => [b.id, b]));
 
   const editSheet = useKeyboardSheetLift();
+  const editScrollRef = useRef<ScrollView>(null);
+  const editViewportRef = useRef<View>(null);
+  /**
+   * The lift above clears the *sheet* of the keyboard; this clears a *field* of
+   * the sheet's own scroll viewport. Note is the last of five stacked fields
+   * and the sheet is capped at 90% of the screen, so without this it stays
+   * below the fold with the keyboard up — the original "typing blind" bug,
+   * which the lift alone never addressed.
+   *
+   * `slack: 0` because by the time the sheet has been lifted its whole box is
+   * above the IME, so nothing of the keyboard overlaps this viewport.
+   */
+  const editReveal = useRevealField({
+    scrollRef: editScrollRef,
+    viewportRef: editViewportRef,
+    keyboardHeight: editSheet.keyboardHeight,
+    slack: 0,
+  });
 
   /**
    * One guard for all three write paths — confirm, save-edit and discard all
@@ -211,54 +231,71 @@ export default function NotificationInboxScreen() {
                   <Text style={[styles.close, submitting && styles.closeDisabled]}>Cancel</Text>
                 </Pressable>
               </View>
-              <ScrollView
-                contentContainerStyle={formStyles.content}
-                keyboardShouldPersistTaps="handled"
-              >
-                <AmountInput
-                  key={editingId}
-                  initialText={editAmountText}
-                  onChangeAmount={setEditAmount}
-                  autoFocus={false}
-                />
-                <Text style={formStyles.label}>Type</Text>
-                <Segmented
-                  options={[
-                    { value: 'expense', label: 'Expense' },
-                    { value: 'income', label: 'Income' },
-                  ]}
-                  value={editType}
-                  onChange={(value) => {
-                    setEditType(value);
-                    setEditCategoryId(undefined);
-                  }}
-                />
-                <Text style={formStyles.label}>Bucket</Text>
-                <ChipRow items={bucketItems} selectedId={editBucketId} onSelect={setEditBucketId} />
-                <Text style={formStyles.label}>Category</Text>
-                <ChipRow
-                  items={categoryItems}
-                  selectedId={editCategoryId}
-                  onSelect={(id) => setEditCategoryId(editCategoryId === id ? undefined : id)}
-                />
-                <Text style={formStyles.label}>Note</Text>
-                <FormTextInput
-                  style={formStyles.textInput}
-                  value={editNote}
-                  onChangeText={setEditNote}
-                  placeholder="Optional"
-                  placeholderTextColor={colors.inkFaint}
-                  returnKeyType="done"
-                  testID="edit-note"
-                />
-                <View style={{ height: spacing.xs }} />
-                <SubmitButton
-                  label="Save"
-                  disabled={!editValid}
-                  submitting={submitting}
-                  onPress={saveEdit}
-                />
-              </ScrollView>
+              <RevealFieldProvider reveal={editReveal.reveal}>
+                <View
+                  ref={editViewportRef}
+                  style={formStyles.scrollViewport}
+                  // Android flattens layout-only Views, which would leave
+                  // nothing to measure the viewport against.
+                  collapsable={false}
+                  testID="edit-sheet-viewport"
+                >
+                  <ScrollView
+                    ref={editScrollRef}
+                    contentContainerStyle={formStyles.content}
+                    keyboardShouldPersistTaps="handled"
+                    {...editReveal.scrollProps}
+                  >
+                    <AmountInput
+                      key={editingId}
+                      initialText={editAmountText}
+                      onChangeAmount={setEditAmount}
+                      autoFocus={false}
+                    />
+                    <Text style={formStyles.label}>Type</Text>
+                    <Segmented
+                      options={[
+                        { value: 'expense', label: 'Expense' },
+                        { value: 'income', label: 'Income' },
+                      ]}
+                      value={editType}
+                      onChange={(value) => {
+                        setEditType(value);
+                        setEditCategoryId(undefined);
+                      }}
+                    />
+                    <Text style={formStyles.label}>Bucket</Text>
+                    <ChipRow
+                      items={bucketItems}
+                      selectedId={editBucketId}
+                      onSelect={setEditBucketId}
+                    />
+                    <Text style={formStyles.label}>Category</Text>
+                    <ChipRow
+                      items={categoryItems}
+                      selectedId={editCategoryId}
+                      onSelect={(id) => setEditCategoryId(editCategoryId === id ? undefined : id)}
+                    />
+                    <Text style={formStyles.label}>Note</Text>
+                    <FormTextInput
+                      style={formStyles.textInput}
+                      value={editNote}
+                      onChangeText={setEditNote}
+                      placeholder="Optional"
+                      placeholderTextColor={colors.inkFaint}
+                      returnKeyType="done"
+                      testID="edit-note"
+                    />
+                    <View style={{ height: spacing.xs }} />
+                    <SubmitButton
+                      label="Save"
+                      disabled={!editValid}
+                      submitting={submitting}
+                      onPress={saveEdit}
+                    />
+                  </ScrollView>
+                </View>
+              </RevealFieldProvider>
             </SafeAreaView>
           </View>
         </KeyboardAvoidingView>

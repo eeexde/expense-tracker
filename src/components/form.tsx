@@ -170,7 +170,7 @@ export function isFieldObscured({
  * iOS gets the `Will` events so the change lands with the keyboard animation;
  * Android only ever fires the `Did` pair.
  */
-export function useKeyboardHeight() {
+function useKeyboardHeight() {
   const [height, setHeight] = useState(0);
   const upRef = useRef(false);
 
@@ -283,8 +283,40 @@ function useKeyboardOverlap() {
   };
 }
 
+/**
+ * What a scrollable hands its fields: bring this one above the keyboard.
+ *
+ * `onlyIfObscured` is for the re-reveal that follows a keyboard *height* change
+ * rather than a focus — see `useRevealField`.
+ */
+export type RevealField = (
+  field: TextInput | null,
+  options?: { onlyIfObscured?: boolean },
+) => void;
+
 /** Lets a `FormTextInput` ask its scrollable to bring it above the keyboard. */
-const RevealFieldContext = createContext<((field: TextInput | null) => void) | null>(null);
+const RevealFieldContext = createContext<RevealField | null>(null);
+
+/**
+ * Mounts the reveal context for one scrollable, so the `FormTextInput`s under
+ * it can reach the `reveal` from `useRevealField`.
+ *
+ * Separate from `KeyboardAwareForm` because the bottom sheets cannot use that
+ * component at all — a sheet is content-sized, so the `flex: 1` scroll wrapper
+ * would collapse it — yet their fields need exactly the same treatment. Without
+ * a provider the context default is `null` and every `FormTextInput` under it
+ * is silently a plain `TextInput`, which is what left the notification inbox's
+ * note field under the keyboard.
+ */
+export function RevealFieldProvider({
+  reveal,
+  children,
+}: {
+  reveal: RevealField;
+  children: ReactNode;
+}) {
+  return <RevealFieldContext.Provider value={reveal}>{children}</RevealFieldContext.Provider>;
+}
 
 /**
  * `TextInput` that scrolls itself above the keyboard when focused. Drop-in for
@@ -311,20 +343,55 @@ export function FormTextInput({
 }
 
 /**
- * Scrollable form body that keeps the fields and the submit button clear of the
- * software keyboard, and scrolls the focused field into view. See the block
- * comment above for why this does not just hand the job to KeyboardAvoidingView.
+ * The scroll surfaces `useRevealField` knows how to drive. `FlatList` is here
+ * for auto-log's source sheet, whose fields ride in the app list's header and
+ * footer. Method syntax on purpose: it is what makes these structurally
+ * compatible with the real (wider) signatures.
  */
-export function KeyboardAwareForm({
-  children,
-  contentContainerStyle,
+interface RevealScrollable {
+  scrollTo?(options: { y: number; animated: boolean }): void;
+  scrollToOffset?(options: { offset: number; animated: boolean }): void;
+}
+
+export interface RevealFieldHandle {
+  /** Hand to `RevealFieldProvider`, wrapping the scrollable. */
+  reveal: RevealField;
+  /** Spread onto the scrollable — the offset bookkeeping the reveal reads. */
+  scrollProps: {
+    scrollEventThrottle: number;
+    onScrollBeginDrag: () => void;
+    onScroll: (e: NativeSyntheticEvent<NativeScrollEvent>) => void;
+  };
+}
+
+/**
+ * Scrolls the focused field above the keyboard, for one scrollable.
+ *
+ * Split out of `KeyboardAwareForm` so the bottom sheets can have it too: they
+ * are content-sized and cannot host that component, but a sheet's own
+ * `ScrollView`/`FlatList` can mount the provider itself.
+ *
+ * `viewportRef` goes on a `collapsable={false}` box whose bottom edge is the
+ * scrollable's own — Android flattens layout-only Views, which would leave
+ * nothing to measure against.
+ */
+export function useRevealField<S extends RevealScrollable>({
+  scrollRef,
+  viewportRef,
+  keyboardHeight,
+  slack,
 }: {
-  children: ReactNode;
-  contentContainerStyle?: StyleProp<ViewStyle>;
-}) {
-  const { keyboardHeight, slack, onLayout } = useKeyboardOverlap();
-  const scrollRef = useRef<ScrollView>(null);
-  const viewportRef = useRef<View>(null);
+  scrollRef: RefObject<S | null>;
+  viewportRef: RefObject<View | null>;
+  /** Measured keyboard height; drives the re-reveal once the IME lands. */
+  keyboardHeight: number;
+  /**
+   * Keyboard height still overlapping this viewport — see `keyboardSlack`. A
+   * bottom sheet passes 0: whatever lifted the sheet already put its whole box
+   * above the IME, so the reveal only has to scroll within it.
+   */
+  slack: number;
+}): RevealFieldHandle {
   const offsetRef = useRef(0);
   // Last offset we asked for ourselves, 0 for none pending. `onScroll` is
   // throttled to 16ms and an animated `scrollTo` takes far longer than that, so
@@ -370,12 +437,18 @@ export function KeyboardAwareForm({
           if (delta > 1) {
             const target = Math.max(offsetRef.current, commandedRef.current) + delta;
             commandedRef.current = target;
-            scrollRef.current?.scrollTo({ y: target, animated: true });
+            const scrollable = scrollRef.current;
+            // A `FlatList` has no `scrollTo` — auto-log's source sheet carries
+            // its fields in one.
+            if (scrollable?.scrollTo) scrollable.scrollTo({ y: target, animated: true });
+            else scrollable?.scrollToOffset?.({ offset: target, animated: true });
           }
         });
       });
     },
-    [],
+    // Both are refs, so both are stable; they are listed only because they now
+    // arrive as arguments rather than being created here.
+    [scrollRef, viewportRef],
   );
 
   // The keyboard arrives after the tap that focused the field, so the reveal
@@ -395,6 +468,48 @@ export function KeyboardAwareForm({
     if (up && focusedRef.current) reveal(focusedRef.current, { onlyIfObscured: wasUp });
   }, [keyboardHeight, reveal]);
 
+  return {
+    reveal,
+    scrollProps: {
+      scrollEventThrottle: 16,
+      // A drag means the offset the user wants is the one on screen, not one we
+      // asked for earlier.
+      onScrollBeginDrag: () => {
+        commandedRef.current = 0;
+      },
+      onScroll: (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+        const y = e.nativeEvent.contentOffset.y;
+        offsetRef.current = y;
+        // Reached what we asked for (or went past it) — the memory of the
+        // request has served its purpose.
+        if (y >= commandedRef.current) commandedRef.current = 0;
+      },
+    },
+  };
+}
+
+/**
+ * Scrollable form body that keeps the fields and the submit button clear of the
+ * software keyboard, and scrolls the focused field into view. See the block
+ * comment above for why this does not just hand the job to KeyboardAvoidingView.
+ */
+export function KeyboardAwareForm({
+  children,
+  contentContainerStyle,
+}: {
+  children: ReactNode;
+  contentContainerStyle?: StyleProp<ViewStyle>;
+}) {
+  const { keyboardHeight, slack, onLayout } = useKeyboardOverlap();
+  const scrollRef = useRef<ScrollView>(null);
+  const viewportRef = useRef<View>(null);
+  const { reveal, scrollProps } = useRevealField({
+    scrollRef,
+    viewportRef,
+    keyboardHeight,
+    slack,
+  });
+
   return (
     <KeyboardAvoidingView style={formStyles.fill} behavior="padding">
       <View
@@ -406,7 +521,7 @@ export function KeyboardAwareForm({
         collapsable={false}
         testID="form-viewport"
       >
-        <RevealFieldContext.Provider value={reveal}>
+        <RevealFieldProvider reveal={reveal}>
           <ScrollView
             ref={scrollRef}
             style={formStyles.fill}
@@ -416,23 +531,11 @@ export function KeyboardAwareForm({
               contentContainerStyle,
             ]}
             keyboardShouldPersistTaps="handled"
-            scrollEventThrottle={16}
-            // A drag means the offset the user wants is the one on screen, not
-            // one we asked for earlier.
-            onScrollBeginDrag={() => {
-              commandedRef.current = 0;
-            }}
-            onScroll={(e: NativeSyntheticEvent<NativeScrollEvent>) => {
-              const y = e.nativeEvent.contentOffset.y;
-              offsetRef.current = y;
-              // Reached what we asked for (or went past it) — the memory of the
-              // request has served its purpose.
-              if (y >= commandedRef.current) commandedRef.current = 0;
-            }}
+            {...scrollProps}
           >
             {children}
           </ScrollView>
-        </RevealFieldContext.Provider>
+        </RevealFieldProvider>
       </View>
     </KeyboardAvoidingView>
   );
@@ -446,10 +549,14 @@ export function KeyboardAwareForm({
  * Android only. On iOS the KAV's own math is sound and rides the `Will` events,
  * so a second measured lift there would only overshoot for the one frame before
  * the anchor's `onLayout` reports the KAV's padding back.
+ *
+ * `keyboardHeight` comes back so the sheet can drive a `useRevealField` too:
+ * lifting the sheet clears the keyboard, but a field low in a tall sheet is
+ * then below the sheet's own scroll viewport and still needs scrolling to.
  */
 export function useKeyboardSheetLift() {
-  const { slack, onLayout } = useKeyboardOverlap();
-  return { lift: Platform.OS === 'android' ? slack : 0, onLayout };
+  const { keyboardHeight, slack, onLayout } = useKeyboardOverlap();
+  return { lift: Platform.OS === 'android' ? slack : 0, onLayout, keyboardHeight };
 }
 
 /**
@@ -605,6 +712,13 @@ export const formStyles = StyleSheet.create({
    * the keyboard. See `keyboardSlack`.
    */
   content: { padding: spacing.md, gap: spacing.sm, paddingBottom: spacing.xl },
+  /**
+   * Wrapper a bottom sheet puts around its scrollable so `useRevealField` has a
+   * box to measure. `flexShrink` is what a scrollable carries in its own base
+   * style, and it has to be repeated here or the wrapper refuses to give up the
+   * height the sheet's `maxHeight` takes back.
+   */
+  scrollViewport: { flexShrink: 1 },
   title: {
     fontFamily: fonts.display,
     fontSize: 20,

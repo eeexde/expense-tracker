@@ -1,5 +1,14 @@
 import { act, fireEvent, render, RenderResult } from '@testing-library/react-native';
-import { Dimensions, Keyboard, KeyboardEvent, Platform, StyleSheet, Text } from 'react-native';
+import {
+  Dimensions,
+  Keyboard,
+  KeyboardEvent,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import {
   FormTextInput,
   isFieldObscured,
@@ -97,9 +106,38 @@ function setPlatform(os: typeof Platform.OS) {
  * hook now seeds from) on the module singleton, so a test that leaves the
  * keyboard up would leak into the next one.
  */
+/* --------------------------------------------------------------------------
+ * Field reveal
+ *
+ * RN's jest preset assigns one shared `MockNativeMethods` object onto the
+ * View/TextInput/ScrollView mock prototypes, so `measureInWindow` is a single
+ * no-op `jest.fn()` behind every node — and the reveal's two nested measure
+ * callbacks therefore never run unless a test stubs it. Everything below
+ * `reveal()`'s two `measureInWindow` calls was untested until this stub existed.
+ * ------------------------------------------------------------------------ */
+
+type Measurable = { prototype: { measureInWindow: jest.Mock } };
+const measureInWindow = (View as unknown as Measurable).prototype.measureInWindow;
+const scrollTo = (ScrollView as unknown as { prototype: { scrollTo: jest.Mock } }).prototype
+  .scrollTo;
+
+/** Window-coordinate boxes (`x, y, width, height`) keyed by the node's testID. */
+function stubGeometry(boxes: Record<string, [number, number, number, number]>) {
+  measureInWindow.mockImplementation(function (
+    this: { props?: { testID?: string } },
+    callback: (x: number, y: number, width: number, height: number) => void,
+  ) {
+    const box = boxes[this?.props?.testID ?? ''];
+    if (box) callback(...box);
+  });
+}
+
 afterEach(async () => {
   await hideKeyboard();
   setPlatform(realPlatform);
+  // Shared across every mocked native component in this module registry.
+  measureInWindow.mockReset();
+  scrollTo.mockReset();
 });
 
 describe('keyboardSlack', () => {
@@ -458,5 +496,48 @@ describe('FormTextInput', () => {
     await fireEvent(view.getByTestId('field'), 'focus');
 
     expect(onFocus).toHaveBeenCalled();
+  });
+
+  /**
+   * `FormTextInput` only does anything when a `RevealFieldProvider` is above it
+   * — `KeyboardAwareForm` mounts one, a bare `ScrollView` does not. Both halves
+   * are asserted here, because "the field is a `FormTextInput`" is exactly the
+   * thing that looked like the wiring and wasn't on the sheets.
+   */
+  it('scrolls a focused field out from under the keyboard', async () => {
+    stubGeometry({
+      'form-viewport': [0, 0, 400, 800],
+      field: [0, 700, 400, 48],
+    });
+    const view = await render(
+      <KeyboardAwareForm>
+        <FormTextInput testID="field" />
+      </KeyboardAwareForm>,
+    );
+    await layoutViewport(view, 800);
+    await showKeyboard(300);
+
+    await fireEvent(view.getByTestId('field'), 'focus');
+
+    // Keyboard top is 800 - 300 = 500; the field's bottom is 748 and wants 16
+    // of clearance.
+    expect(scrollTo).toHaveBeenCalledWith({ y: 264, animated: true });
+  });
+
+  it('does nothing for a field outside any reveal provider', async () => {
+    stubGeometry({
+      'form-viewport': [0, 0, 400, 800],
+      field: [0, 700, 400, 48],
+    });
+    const view = await render(
+      <ScrollView>
+        <FormTextInput testID="field" />
+      </ScrollView>,
+    );
+    await showKeyboard(300);
+
+    await fireEvent(view.getByTestId('field'), 'focus');
+
+    expect(scrollTo).not.toHaveBeenCalled();
   });
 });
