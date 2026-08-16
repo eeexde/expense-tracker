@@ -1,11 +1,36 @@
 package expo.modules.notificationlistener
 
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.provider.Settings
+import android.service.notification.NotificationListenerService
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import org.json.JSONObject
 
 class NotificationListenerModule : Module() {
+  private fun enabledInSettings(context: Context): Boolean {
+    val enabled = Settings.Secure.getString(
+      context.contentResolver,
+      "enabled_notification_listeners",
+    ) ?: ""
+    return enabled.contains(context.packageName)
+  }
+
+  /**
+   * Serialized rather than returned as a map: every other value this module
+   * hands to JS is a String or a List<Map<String, String>>, and a status object
+   * mixes booleans with a nullable number. `drainBuffer` already sets the
+   * precedent, and JSON keeps the shape out of the converter's way entirely.
+   */
+  private fun statusJson(enabled: Boolean, connected: Boolean, lastSeenAtMillis: Long): String =
+    JSONObject()
+      .put("enabledInSettings", enabled)
+      .put("connected", connected)
+      .put("lastSeenAtMillis", lastSeenAtMillis)
+      .toString()
+
   override fun definition() = ModuleDefinition {
     Name("NotificationListener")
     Events("onNotificationCaptured")
@@ -20,13 +45,45 @@ class NotificationListenerModule : Module() {
       NotificationBuffer.onCaptured = null
     }
 
+    /**
+     * Whether the user granted notification access. NOT whether anything is
+     * listening: Android keeps this setting populated after it unbinds the
+     * service on an APK update, which is exactly how the feature ends up dead
+     * while the settings screen still says it is on. Use `getListenerStatus`
+     * to know if it is running.
+     */
     Function("isPermissionGranted") {
       val context = appContext.reactContext ?: return@Function false
-      val enabled = Settings.Secure.getString(
-        context.contentResolver,
-        "enabled_notification_listeners",
-      ) ?: ""
-      enabled.contains(context.packageName)
+      enabledInSettings(context)
+    }
+
+    /** Permission, live bind state and the last-seen heartbeat, as JSON. */
+    Function("getListenerStatus") {
+      val context = appContext.reactContext
+        ?: return@Function statusJson(enabled = false, connected = false, lastSeenAtMillis = 0L)
+      statusJson(
+        enabled = enabledInSettings(context),
+        connected = NotificationBuffer.isConnected,
+        lastSeenAtMillis = NotificationBuffer.lastSeenAtMillis(context),
+      )
+    }
+
+    /**
+     * Asks the system to bind the listener again. This is the documented cure
+     * for the unbind an APK update causes (`requestRebind`, API 24+), and it
+     * is a no-op when the user never granted access. Nothing here can confirm
+     * the bind — `getListenerStatus` reports whether it landed.
+     */
+    Function("requestRebind") {
+      appContext.reactContext?.let { context ->
+        try {
+          NotificationListenerService.requestRebind(
+            ComponentName(context, KuripotNotificationListenerService::class.java),
+          )
+        } catch (_: Exception) {
+          // Best-effort: a refused rebind leaves the UI's own advice standing.
+        }
+      }
     }
 
     Function("openSettings") {

@@ -47,7 +47,18 @@ jest.mock('@/db/DbProvider', () => ({
  * ------------------------------------------------------------------------ */
 
 let mockAvailable = true;
-const mockIsPermissionGranted = jest.fn(() => false);
+/**
+ * The native status. `enabledInSettings` is the OS setting; `connected` is the
+ * service actually being bound. They come apart after an APK update, which is
+ * the whole reason the screen reads both.
+ */
+let mockListenerStatus = {
+  enabledInSettings: false,
+  connected: false,
+  lastSeenAtMillis: 0,
+};
+const mockGetListenerStatus = jest.fn(() => mockListenerStatus);
+const mockRequestRebind = jest.fn();
 const mockOpenSettings = jest.fn();
 const mockGetLaunchableApps = jest.fn(() => [
   { label: 'BPI', packageName: 'com.bpi.app' },
@@ -60,7 +71,8 @@ jest.mock('../../modules/notification-listener', () => ({
   get isAvailable() {
     return mockAvailable;
   },
-  isPermissionGranted: () => mockIsPermissionGranted(),
+  getListenerStatus: () => mockGetListenerStatus(),
+  requestRebind: () => mockRequestRebind(),
   openSettings: () => mockOpenSettings(),
   getLaunchableApps: () => mockGetLaunchableApps(),
   setWatchedPackages: (packages: string[]) => mockSetWatchedPackages(packages),
@@ -183,10 +195,15 @@ async function openRuleSheet() {
   await waitFor(() => expect(screen.getByTestId('rule-keyword')).toBeTruthy());
 }
 
+function setListenerStatus(next: Partial<typeof mockListenerStatus>) {
+  mockListenerStatus = { ...mockListenerStatus, ...next };
+}
+
 beforeEach(() => {
   mockTestDb = createTestDb();
   mockAvailable = true;
-  mockIsPermissionGranted.mockReturnValue(false);
+  mockListenerStatus = { enabledInSettings: false, connected: false, lastSeenAtMillis: 0 };
+  mockRequestRebind.mockClear();
   mockSetWatchedPackages.mockClear();
   mockOpenSettings.mockClear();
 });
@@ -219,13 +236,71 @@ describe('auto-log screen', () => {
     expect(screen.queryByText('＋ Add source')).toBeNull();
   });
 
-  it('reports the permission the native module actually grants', async () => {
-    mockIsPermissionGranted.mockReturnValue(true);
+  it('asks for permission when notification access was never granted', async () => {
+    await render(<AutoLogScreen />);
+
+    expect(screen.getByText('Permission needed')).toBeTruthy();
+    expect(screen.queryByTestId('listener-stalled')).toBeNull();
+    // Nothing to rebind — the OS refuses a rebind without the grant anyway.
+    expect(mockRequestRebind).not.toHaveBeenCalled();
+  });
+
+  it('claims to be listening only when the service is actually bound', async () => {
+    setListenerStatus({ enabledInSettings: true, connected: true });
 
     await render(<AutoLogScreen />);
 
     expect(screen.getByText('Listening ✓')).toBeTruthy();
-    expect(screen.queryByText('Permission needed')).toBeNull();
+    expect(screen.queryByTestId('listener-stalled')).toBeNull();
+    expect(mockRequestRebind).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The regression this guards: `isPermissionGranted()` reads
+ * `enabled_notification_listeners`, which Android leaves naming Kuripot after
+ * it silently unbinds the listener on an APK update (CLAUDE.md documents the
+ * off/on cure). The screen used to render a green "Listening ✓" off that
+ * string alone, so the one state where auto-log is dead is the state the UI
+ * was most confident about.
+ */
+describe('auto-log listener liveness', () => {
+  it('does not claim to be listening when access is on but nothing is bound', async () => {
+    setListenerStatus({ enabledInSettings: true, connected: false });
+
+    await render(<AutoLogScreen />);
+
+    expect(screen.queryByText('Listening ✓')).toBeNull();
+    expect(screen.getByText('Not listening')).toBeTruthy();
+    expect(screen.getByTestId('listener-stalled')).toBeTruthy();
+    // The user is told the cure, not left with a check mark.
+    expect(screen.getByText(/notification access off and back on/)).toBeTruthy();
+  });
+
+  it('asks Android to rebind before telling the user to go toggling', async () => {
+    setListenerStatus({ enabledInSettings: true, connected: false });
+
+    await render(<AutoLogScreen />);
+
+    expect(mockRequestRebind).toHaveBeenCalled();
+  });
+
+  it('names the day the listener last saw anything', async () => {
+    // 2026-08-16 12:00 local, so the rendered day is timezone-independent.
+    const lastSeen = new Date(2026, 7, 16, 12, 0, 0).getTime();
+    setListenerStatus({ enabledInSettings: true, connected: false, lastSeenAtMillis: lastSeen });
+
+    await render(<AutoLogScreen />);
+
+    expect(screen.getByText(/no notification seen since 2026-08-16/)).toBeTruthy();
+  });
+
+  it('says so plainly when the listener has never seen a notification', async () => {
+    setListenerStatus({ enabledInSettings: true, connected: false, lastSeenAtMillis: 0 });
+
+    await render(<AutoLogScreen />);
+
+    expect(screen.getByText(/has not seen a notification yet/)).toBeTruthy();
   });
 });
 

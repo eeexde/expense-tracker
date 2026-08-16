@@ -43,10 +43,12 @@ import { Icon } from '@/components/Icon';
 import { colors, fonts, radii, spacing } from '@/theme';
 import {
   getLaunchableApps,
+  getListenerStatus,
   isAvailable,
-  isPermissionGranted,
   LaunchableApp,
+  ListenerStatus,
   openSettings,
+  requestRebind,
   setWatchedPackages,
 } from '../../modules/notification-listener';
 
@@ -59,19 +61,50 @@ async function pushWatchedPackages(db: Parameters<typeof watchedPackages>[0]) {
   }
 }
 
+/**
+ * How long to give a requested rebind before believing a `connected: false`.
+ * The system binds the listener asynchronously and can finish after this screen
+ * has already rendered, so the first read of a freshly started process is not
+ * evidence of anything.
+ */
+const REBIND_GRACE_MS = 1500;
+
+/** 'seen 2026-08-16' — same local-date convention as every stored date. */
+function localDay(millis: number): string {
+  const d = new Date(millis);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+    d.getDate(),
+  ).padStart(2, '0')}`;
+}
+
 export default function AutoLogScreen() {
   const router = useRouter();
   const { db, refresh } = useDb();
 
-  const [granted, setGranted] = useState(() => isPermissionGranted());
+  const [status, setStatus] = useState<ListenerStatus>(() => getListenerStatus());
 
   useFocusEffect(
     useCallback(() => {
-      setGranted(isPermissionGranted());
+      let cancelled = false;
+      const check = () => {
+        if (cancelled) return;
+        const next = getListenerStatus();
+        setStatus(next);
+        // Granted but unbound is the state an APK update leaves behind. Asking
+        // the OS to rebind is the documented cure and costs nothing when the
+        // listener is fine, so it runs before the user is told to go toggling.
+        if (next.enabledInSettings && !next.connected) requestRebind();
+      };
+      check();
+      const recheck = setTimeout(check, REBIND_GRACE_MS);
       const sub = AppState.addEventListener('change', (state) => {
-        if (state === 'active') setGranted(isPermissionGranted());
+        if (state === 'active') check();
       });
-      return () => sub.remove();
+      return () => {
+        cancelled = true;
+        clearTimeout(recheck);
+        sub.remove();
+      };
     }, []),
   );
 
@@ -225,6 +258,10 @@ export default function AutoLogScreen() {
     );
   }
 
+  // Both halves required: the settings string alone survives the unbind, so on
+  // its own it would claim a dead feature is working.
+  const listening = status.enabledInSettings && status.connected;
+
   const bucketItems = (activeBuckets ?? []).map((b) => ({ id: b.id, label: b.name, icon: b.icon }));
   const categoryItems = (allCategories ?? []).map((c) => ({ id: c.id, label: c.name, icon: c.icon }));
 
@@ -254,9 +291,26 @@ export default function AutoLogScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.sectionTitle}>Permission</Text>
         <View style={styles.permissionCard}>
-          <Text style={granted ? styles.permissionOk : styles.permissionBad}>
-            {granted ? 'Listening ✓' : 'Permission needed'}
+          <Text style={listening ? styles.permissionOk : styles.permissionBad}>
+            {listening
+              ? 'Listening ✓'
+              : status.enabledInSettings
+                ? 'Not listening'
+                : 'Permission needed'}
           </Text>
+          {/* Permission granted but the service is not bound: the exact state
+              an APK update leaves behind, and the one the old green check used
+              to paper over while nothing was being captured. */}
+          {status.enabledInSettings && !listening && (
+            <Text style={styles.permissionWarn} testID="listener-stalled">
+              Notification access is on, but Kuripot&apos;s listener is not connected
+              {status.lastSeenAtMillis > 0
+                ? ` — no notification seen since ${localDay(status.lastSeenAtMillis)}`
+                : ' and it has not seen a notification yet'}
+              . Android drops the listener when the app updates: turn Kuripot&apos;s notification
+              access off and back on to restore it.
+            </Text>
+          )}
           <Text style={styles.sectionSub}>
             Kuripot reads bank/e-wallet notifications on-device to auto-log transactions. Nothing
             leaves your phone.
@@ -568,6 +622,13 @@ const styles = StyleSheet.create({
   },
   permissionOk: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.income },
   permissionBad: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.danger },
+  permissionWarn: {
+    fontFamily: fonts.body,
+    fontSize: 13,
+    lineHeight: 19,
+    color: colors.danger,
+    marginBottom: spacing.xs,
+  },
   action: {
     backgroundColor: colors.surfaceRaised,
     borderColor: colors.border,

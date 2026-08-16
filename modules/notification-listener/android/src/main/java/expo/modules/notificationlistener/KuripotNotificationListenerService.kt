@@ -17,9 +17,26 @@ class KuripotNotificationListenerService : NotificationListenerService() {
     return format.format(Date(epochMillis))
   }
 
+  /**
+   * The system binds the service here — including after the rebind the module
+   * asks for when an APK update left it unbound. This is the only positive
+   * signal that the feature is actually running; the settings string is not.
+   */
+  override fun onListenerConnected() {
+    NotificationBuffer.onServiceConnected()
+  }
+
+  override fun onListenerDisconnected() {
+    NotificationBuffer.onServiceDisconnected()
+  }
+
   override fun onNotificationPosted(sbn: StatusBarNotification) {
     // This runs in the app's process; any uncaught throw here kills the app.
     try {
+      // Heartbeat first, and for every notification rather than only watched
+      // ones: what it records is that the service is alive, which is a
+      // different question from whether this notification is interesting.
+      NotificationBuffer.markAlive(this, System.currentTimeMillis())
       if (sbn.isOngoing) return // media players, foreground services
       val pkg = sbn.packageName ?: return
       if (!NotificationBuffer.isWatched(this, pkg)) return
