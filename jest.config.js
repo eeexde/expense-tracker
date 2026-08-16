@@ -4,6 +4,20 @@
  * worktrees), and jest's glob matching silently skips dot-dir paths.
  */
 module.exports = {
+  /**
+   * Jest's default (cpus - 1) spawns ~19 workers here, and each `ui` worker
+   * loads a full react-native sandbox. That overcommits memory long before it
+   * overcommits CPU: a default run took 173s, and once 640s, against 13s in
+   * band — almost all of it paging. Capping restores ~26s.
+   *
+   * This does NOT cure the "worker process has failed to exit gracefully"
+   * warning, which still shows up intermittently (~3 runs in 5, `logic` only).
+   * That one is a jest-worker artifact — a child that misses the 500ms exit
+   * grace period gets force-killed — not a test leak: `--detectOpenHandles`
+   * reports nothing, and closing every better-sqlite3 handle in an `afterAll`
+   * measurably changed nothing. It is cosmetic; results are unaffected.
+   */
+  maxWorkers: '50%',
   projects: [
     {
       displayName: 'logic',
