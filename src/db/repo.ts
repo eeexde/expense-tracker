@@ -1,4 +1,4 @@
-import { and, desc, eq, like, or, sql } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, like, ne, or, sql } from 'drizzle-orm';
 import {
   Bucket,
   buckets,
@@ -119,7 +119,13 @@ export async function listTransactions(
   return query;
 }
 
-/** startingBalance + income − expenses − transfers out + transfers in. */
+/**
+ * startingBalance + income − expenses − transfers out + transfers in.
+ *
+ * The `where` is not a filter in the accounting sense: every row it drops
+ * matches none of the `case` arms and would contribute the `else 0`. It is
+ * there so the sum rides `idx_txn_bucket` instead of scanning the table.
+ */
 export async function bucketBalance(db: Db, bucketId: number): Promise<number> {
   const [bucket] = await db.select().from(buckets).where(eq(buckets.id, bucketId));
   if (!bucket) throw new Error(`No bucket ${bucketId}`);
@@ -134,7 +140,8 @@ export async function bucketBalance(db: Db, bucketId: number): Promise<number> {
           else 0
         end), 0)`,
     })
-    .from(transactions);
+    .from(transactions)
+    .where(or(eq(transactions.bucketId, bucketId), eq(transactions.toBucketId, bucketId)));
   return bucket.startingBalance + delta;
 }
 
@@ -143,13 +150,63 @@ export interface BucketWithBalance {
   balance: number;
 }
 
+/**
+ * Every bucket's delta in two grouped passes instead of one full scan per
+ * bucket. The signs are the same four rules `bucketBalance` spells out, split
+ * by which side of the row the bucket sits on:
+ *
+ * - the row's own `bucketId` gets +income / −expense / −transfer;
+ * - a transfer's `toBucketId` gets +amount.
+ *
+ * `toBucketId <> bucketId` reproduces the `case`'s first-match-wins ordering:
+ * a (rejected at write time, but possible in old data) self-transfer hits the
+ * "transfer out" arm and never reaches the "transfer in" one, so it must not
+ * be counted twice here either. Rows with a null `toBucketId` fall out of that
+ * same comparison, as they fell out of the `= bucketId` arm.
+ */
+async function bucketDeltas(db: Db): Promise<Map<number, number>> {
+  const outgoing: { bucketId: number; delta: number }[] = await db
+    .select({
+      bucketId: transactions.bucketId,
+      delta: sql<number>`coalesce(sum(
+        case
+          when ${transactions.type} = 'income' then ${transactions.amount}
+          when ${transactions.type} = 'expense' then -${transactions.amount}
+          when ${transactions.type} = 'transfer' then -${transactions.amount}
+          else 0
+        end), 0)`,
+    })
+    .from(transactions)
+    .groupBy(transactions.bucketId);
+  const incoming: { bucketId: number; delta: number }[] = await db
+    .select({
+      bucketId: transactions.toBucketId,
+      delta: sql<number>`coalesce(sum(${transactions.amount}), 0)`,
+    })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.type, 'transfer'),
+        isNotNull(transactions.toBucketId),
+        ne(transactions.toBucketId, transactions.bucketId),
+      ),
+    )
+    .groupBy(transactions.toBucketId);
+
+  const deltas = new Map<number, number>();
+  for (const row of [...outgoing, ...incoming]) {
+    deltas.set(row.bucketId, (deltas.get(row.bucketId) ?? 0) + row.delta);
+  }
+  return deltas;
+}
+
 export async function allBucketBalances(db: Db): Promise<BucketWithBalance[]> {
   const active: Bucket[] = await db.select().from(buckets).where(eq(buckets.archived, false));
-  const result: BucketWithBalance[] = [];
-  for (const bucket of active) {
-    result.push({ bucket, balance: await bucketBalance(db, bucket.id) });
-  }
-  return result;
+  const deltas = await bucketDeltas(db);
+  return active.map((bucket) => ({
+    bucket,
+    balance: bucket.startingBalance + (deltas.get(bucket.id) ?? 0),
+  }));
 }
 
 export async function totalMoney(db: Db): Promise<number> {

@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppDb } from './client';
-import { useDb } from './DbProvider';
+import { QueryScope, useDb } from './DbProvider';
 
 export interface AppQueryResult<T> {
   /**
@@ -23,8 +23,15 @@ export interface AppQueryResult<T> {
 }
 
 /**
- * Run a query against the app DB, re-running whenever `refresh()` bumps the
- * provider version, `deps` change, or `retry()` is called.
+ * Run a query against the app DB, re-running whenever a write lands on a table
+ * this query read, `deps` change, or `retry()` is called.
+ *
+ * The re-run set used to be "every query in the app", because `refresh()`
+ * bumped one global counter and the tabs never unmount — one added transaction
+ * cost 212 statements across five screens. So each run reports the tables it
+ * touched (see `trackReads`) and only writes to those tables wake it. Nothing
+ * at the ~20 call sites changes: the scope is observed, not declared, and it
+ * stays at "every table" until a run completes cleanly enough to narrow it.
  *
  * Use this over `useAppQuery` wherever the screen can render an inline retry:
  * neither hook throws, but this one hands back the failure and a `retry()` so
@@ -34,7 +41,7 @@ export function useAppQueryResult<T>(
   query: (db: AppDb) => Promise<T>,
   deps: unknown[] = [],
 ): AppQueryResult<T> {
-  const { db, version } = useDb();
+  const { db, version, registerQuery, trackReads } = useDb();
   // One cell, because the pair moves together: a success is also the end of
   // whatever failure preceded it, and a failure has to leave `data` alone.
   const [state, setState] = useState<{ data: T | undefined; error: Error | null }>({
@@ -42,27 +49,51 @@ export function useAppQueryResult<T>(
     error: null,
   });
   const [attempt, setAttempt] = useState(0);
+  const [invalidations, setInvalidations] = useState(0);
+  // Mutated after each run rather than held in state: narrowing the scope must
+  // not itself schedule a re-run, or every query would run twice on mount. The
+  // ref itself is only ever dereferenced inside effects — reading `.current`
+  // during render is what `react-hooks/refs` forbids, and the compiler needs
+  // that to hold to memoize this component safely.
+  const scopeRef = useRef<QueryScope>({ tables: null });
+
+  useEffect(
+    () => registerQuery?.(scopeRef.current, () => setInvalidations((n) => n + 1)),
+    [registerQuery],
+  );
 
   useEffect(() => {
     let cancelled = false;
-    query(db).then(
+    const read = new Set<string>();
+    // No tracker (a stubbed provider) means no evidence, which means the query
+    // stays subscribed to everything.
+    let attributed = trackReads !== undefined;
+    const tracked =
+      trackReads?.(db, (tables) => {
+        if (tables === null) attributed = false;
+        else for (const table of tables) read.add(table);
+      }) ?? db;
+    query(tracked).then(
       (result) => {
-        if (!cancelled) setState({ data: result, error: null });
+        if (cancelled) return;
+        scopeRef.current.tables = attributed ? read : null;
+        setState({ data: result, error: null });
       },
       (e: unknown) => {
-        if (!cancelled) {
-          setState((prev) => ({
-            data: prev.data,
-            error: e instanceof Error ? e : new Error(String(e)),
-          }));
-        }
+        if (cancelled) return;
+        // A rejected run read an unknown amount, so it earns no narrowing.
+        scopeRef.current.tables = null;
+        setState((prev) => ({
+          data: prev.data,
+          error: e instanceof Error ? e : new Error(String(e)),
+        }));
       },
     );
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, version, attempt, ...deps]);
+  }, [db, version, invalidations, attempt, ...deps]);
 
   const retry = useCallback(() => {
     setState((prev) => ({ data: prev.data, error: null }));
