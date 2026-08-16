@@ -136,6 +136,76 @@ describe('runCatchUp', () => {
     expect(again.posted).toHaveLength(0);
   });
 
+  describe('crash between a posted due and its ledger move', () => {
+    // runCatchUp runs on EVERY cold open, and posting a due is two unguarded
+    // awaits: insert the transaction, then move lastPostedDate / amountPaid.
+    // These simulate death after the insert by writing the transaction and
+    // leaving the ledger untouched — exactly the state the process leaves.
+
+    it('does not re-post a recurring due whose lastPostedDate never landed', async () => {
+      const [r] = await db
+        .insert(recurring)
+        .values({
+          name: 'Rent',
+          amount: 500000,
+          bucketId,
+          frequency: 'monthly',
+          dayDue: 1,
+          startDate: '2026-03-01',
+        })
+        .returning();
+      // Step 1 only: March's transaction is written, lastPostedDate is not.
+      await db.insert(transactions).values({
+        type: 'expense',
+        amount: 500000,
+        bucketId,
+        note: 'Rent',
+        date: '2026-03-01',
+        recurringId: r.id,
+      });
+
+      const summary = await runCatchUp(db, '2026-03-15');
+
+      expect(await db.select().from(transactions)).toHaveLength(1); // not two
+      expect(summary.posted).toHaveLength(0);
+      const [item] = await db.select().from(recurring);
+      expect(item.lastPostedDate).toBe('2026-03-01'); // ledger finished instead
+    });
+
+    it('resumes an installment batch instead of re-posting its written dues', async () => {
+      const [plan] = await db
+        .insert(installments)
+        .values({
+          itemName: 'Laptop',
+          totalAmount: 300000,
+          monthlyDue: 100000,
+          monthsTotal: 3,
+          dayDue: 10,
+          bucketId,
+          startDate: '2026-01-01',
+        })
+        .returning();
+      // Step 1 only, for the first of three missed dues.
+      await db.insert(transactions).values({
+        type: 'expense',
+        amount: 100000,
+        bucketId,
+        note: 'Laptop',
+        date: '2026-01-10',
+        installmentId: plan.id,
+      });
+
+      await runCatchUp(db, '2026-03-31');
+
+      const txns = await db.select().from(transactions);
+      expect(txns).toHaveLength(3); // Jan (recovered), Feb, Mar — not four
+      expect(txns.map((t) => t.date)).toEqual(['2026-01-10', '2026-02-10', '2026-03-10']);
+      const [after] = await db.select().from(installments);
+      expect(after.amountPaid).toBe(300000);
+      expect(after.monthsPaid).toBe(3);
+    });
+  });
+
   it('links posted txns to their source', async () => {
     const [r] = await db
       .insert(recurring)

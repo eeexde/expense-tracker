@@ -1,6 +1,7 @@
 import { buckets, transactions, utang as utangTable } from './schema';
 import { createTestDb, TestDb } from './testDb';
 import { addExpense, bucketBalance } from './repo';
+import { runCatchUp } from '../lib/recurringEngine';
 import {
   addUtang,
   addUtangPayment,
@@ -175,6 +176,34 @@ describe('utangRepo', () => {
           bucketId,
         }),
       ).rejects.toThrow();
+    });
+
+    it('recovers a payment whose money was logged but whose row was lost', async () => {
+      const u = await addUtang(db, { personName: 'Juan', direction: 'iOwe', originalAmount: 50000 });
+      // Step 1: the money log. Step 2 (the utang_payments row) never runs —
+      // process death between the two awaits of the linked-payment save.
+      await addExpense(db, { amount: 20000, bucketId, date: '2026-07-01', utangId: u.id });
+      expect(await utangRemaining(db, u.id)).toBe(50000); // debt looks unpaid
+
+      await runCatchUp(db, '2026-07-02');
+
+      expect(await utangRemaining(db, u.id)).toBe(30000);
+      expect(await db.select().from(transactions)).toHaveLength(1); // no second log
+      // and a rerun does not double-count the recovery
+      await runCatchUp(db, '2026-07-03');
+      expect(await utangRemaining(db, u.id)).toBe(30000);
+    });
+
+    it('recovery ignores a payment row whose transaction is gone', async () => {
+      const u = await addUtang(db, { personName: 'Juan', direction: 'iOwe', originalAmount: 50000 });
+      await recordLinkedUtangPayment(db, 'expense', {
+        utangId: u.id,
+        amount: 20000,
+        date: '2026-07-01',
+        bucketId,
+      });
+      await runCatchUp(db, '2026-07-02');
+      expect(await utangRemaining(db, u.id)).toBe(30000);
     });
 
     it('lists only debts that still have a balance', async () => {

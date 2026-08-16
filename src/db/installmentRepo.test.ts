@@ -1,5 +1,6 @@
 import { buckets, installments, transactions } from './schema';
 import { createTestDb, TestDb } from './testDb';
+import { addExpense } from './repo';
 import {
   installmentRemaining,
   listOpenInstallments,
@@ -90,6 +91,44 @@ describe('installmentRepo', () => {
     const [plan] = await db.select().from(installments);
     expect(plan.amountPaid).toBe(400000);
     expect(plan.monthsPaid).toBe(4);
+  });
+
+  describe('crash between the money log and the plan ledger', () => {
+    // The linked-payment path is two unguarded awaits: log the expense, then
+    // move amountPaid. Android kills backgrounded apps between them. These
+    // simulate that by doing the FIRST step only and never the second.
+
+    it('the next catch-up credits the orphaned expense instead of re-posting the month', async () => {
+      // Step 1: the money log (Jan's due, paid by hand and linked to the plan).
+      await addExpense(db, {
+        amount: 100000,
+        bucketId,
+        date: '2026-01-10',
+        installmentId: planId,
+      });
+      // Step 2 (recordLinkedInstallmentPayment) never runs — process death.
+      const [crashed] = await db.select().from(installments);
+      expect(crashed.amountPaid).toBe(0);
+
+      await runCatchUp(db, '2026-01-31');
+
+      // Jan's due is already logged: it must be credited, never charged twice.
+      const txns = await db.select().from(transactions);
+      expect(txns).toHaveLength(1);
+      const [plan] = await db.select().from(installments);
+      expect(plan.amountPaid).toBe(100000);
+      expect(plan.monthsPaid).toBe(1);
+    });
+
+    it('recovery never walks a plan backwards', async () => {
+      // A healthy advance payment: ledger moved, and the user later deleted the
+      // expense that logged it. Recovery is one-way, so nothing is undone.
+      await recordLinkedInstallmentPayment(db, { installmentId: planId, amount: 300000 });
+      await runCatchUp(db, '2026-01-05'); // before the first due — posts nothing
+      const [plan] = await db.select().from(installments);
+      expect(plan.amountPaid).toBe(300000);
+      expect(plan.monthsPaid).toBe(3);
+    });
   });
 
   describe('updateInstallment', () => {

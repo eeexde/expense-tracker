@@ -5,8 +5,16 @@ import { TransactionForm, TransactionFormValues } from '@/components/Transaction
 import { useDb } from '@/db/DbProvider';
 import { useAppQuery } from '@/db/hooks';
 import { addExpense, addIncome, addTransfer } from '@/db/repo';
-import { listOpenInstallments, recordLinkedInstallmentPayment } from '@/db/installmentRepo';
-import { listOpenUtang, recordLinkedUtangPayment } from '@/db/utangRepo';
+import {
+  assertLinkedInstallmentPayment,
+  listOpenInstallments,
+  recordLinkedInstallmentPayment,
+} from '@/db/installmentRepo';
+import {
+  assertLinkedUtangPayment,
+  listOpenUtang,
+  recordLinkedUtangPayment,
+} from '@/db/utangRepo';
 import { buckets as bucketsTable, categories as categoriesTable } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { colors, fonts, spacing } from '@/theme';
@@ -42,26 +50,42 @@ export default function AddTransactionScreen() {
       utangId: values.utangId,
       installmentId: values.installmentId,
     };
-    if (values.kind !== 'transfer' && values.utangId !== undefined) {
-      // Validates direction + remaining, records the payment; the transaction
-      // below is the single money log (no double entry).
-      await recordLinkedUtangPayment(db, values.kind, {
-        utangId: values.utangId,
-        amount: values.amount,
-        date: values.date,
-        bucketId: values.bucketId,
-      });
-    }
-    if (values.kind === 'expense' && values.installmentId !== undefined) {
-      // Moves the plan's paid amount forward; the expense below is the money log.
-      await recordLinkedInstallmentPayment(db, {
-        installmentId: values.installmentId,
-        amount: values.amount,
-      });
-    }
+    const utangLink =
+      values.kind !== 'transfer' && values.utangId !== undefined
+        ? {
+            kind: values.kind,
+            payment: {
+              utangId: values.utangId,
+              amount: values.amount,
+              date: values.date,
+              bucketId: values.bucketId,
+            },
+          }
+        : null;
+    const installmentLink =
+      values.kind === 'expense' && values.installmentId !== undefined
+        ? { installmentId: values.installmentId, amount: values.amount }
+        : null;
+
+    // Reject a wrong-direction or over-payment before writing anything.
+    if (utangLink) await assertLinkedUtangPayment(db, utangLink.kind, utangLink.payment);
+    if (installmentLink) await assertLinkedInstallmentPayment(db, installmentLink);
+
+    // Money log first, ledger second — and never the other way round. These are
+    // two unguarded awaits with no usable transaction around them (both drizzle
+    // drivers commit synchronously, so an async db.transaction() callback
+    // commits at its first await), and Android kills backgrounded apps freely.
+    // Dying between them this way leaves the transaction logged and the
+    // plan/debt merely behind, which runCatchUp's reconcilers finish on the
+    // next open. The reverse order left phantom progress — a plan believing it
+    // was more paid than it was, with no transaction and no bucket movement
+    // behind it, and nothing anywhere that could ever detect it.
     if (values.kind === 'expense') await addExpense(db, input);
     else if (values.kind === 'income') await addIncome(db, input);
     else await addTransfer(db, { ...input, toBucketId: values.toBucketId! });
+
+    if (utangLink) await recordLinkedUtangPayment(db, utangLink.kind, utangLink.payment);
+    if (installmentLink) await recordLinkedInstallmentPayment(db, installmentLink);
     refresh();
     router.back();
   };

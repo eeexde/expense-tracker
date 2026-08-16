@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { Installment, installments } from './schema';
+import { Installment, installments, transactions } from './schema';
 
 type Db = any;
 
@@ -85,16 +85,27 @@ export async function updateInstallment(db: Db, id: number, patch: InstallmentPa
     .where(eq(installments.id, id));
 }
 
+/** monthsPaid after `delta` more centavos land on `plan` — one rule, two callers. */
+function monthsAfterPayment(plan: Installment, delta: number): number {
+  const amountPaid = plan.amountPaid + delta;
+  return Math.min(
+    Math.max(
+      plan.monthsPaid + monthsFromPayment(delta, plan.monthlyDue),
+      monthsCovered({ ...plan, amountPaid }),
+    ),
+    plan.monthsTotal,
+  );
+}
+
 /**
- * Payment path for an expense saved with an installment link: the expense
- * itself is the money log, so only the plan's paid amount moves here.
- * Advance payments push amountPaid ahead, so the catch-up engine skips
- * the months already covered.
+ * Validation half of `recordLinkedInstallmentPayment`, split out because the
+ * caller now writes the expense (the money log) BEFORE moving this ledger —
+ * so "payment exceeds the balance" has to reject before that expense exists.
  */
-export async function recordLinkedInstallmentPayment(
+export async function assertLinkedInstallmentPayment(
   db: Db,
   input: { installmentId: number; amount: number },
-): Promise<void> {
+): Promise<Installment> {
   if (!Number.isInteger(input.amount) || input.amount <= 0) {
     throw new Error('Installment payment must be positive centavos');
   }
@@ -107,16 +118,69 @@ export async function recordLinkedInstallmentPayment(
   if (input.amount > remaining) {
     throw new Error(`Payment exceeds remaining balance (${remaining} centavos)`);
   }
-  const amountPaid = plan.amountPaid + input.amount;
-  const monthsPaid = Math.min(
-    Math.max(
-      plan.monthsPaid + monthsFromPayment(input.amount, plan.monthlyDue),
-      monthsCovered({ ...plan, amountPaid }),
-    ),
-    plan.monthsTotal,
-  );
+  return plan;
+}
+
+/**
+ * Payment path for an expense saved with an installment link: the expense
+ * itself is the money log, so only the plan's paid amount moves here.
+ * Advance payments push amountPaid ahead, so the catch-up engine skips
+ * the months already covered.
+ *
+ * Callers must write the expense first — see `reconcileInstallmentLedgers`.
+ */
+export async function recordLinkedInstallmentPayment(
+  db: Db,
+  input: { installmentId: number; amount: number },
+): Promise<void> {
+  const plan = await assertLinkedInstallmentPayment(db, input);
   await db
     .update(installments)
-    .set({ amountPaid, monthsPaid })
+    .set({
+      amountPaid: plan.amountPaid + input.amount,
+      monthsPaid: monthsAfterPayment(plan, input.amount),
+    })
     .where(eq(installments.id, input.installmentId));
+}
+
+/**
+ * Finishes any plan whose money log ran ahead of its ledger.
+ *
+ * Every centavo credited to a plan is also a transaction carrying that plan's
+ * `installmentId` — the linked expense the user saved, or the due the catch-up
+ * engine posted. Both write the transaction first and move `amountPaid`
+ * second, so process death between the two awaits leaves the plan *behind*,
+ * never ahead: the money is logged and the bucket balance is right, only the
+ * plan's progress lags. This detects that gap (logged > amountPaid) and closes
+ * it, exactly as the interrupted write would have.
+ *
+ * Deliberately one-way. A user deleting or editing a linked expense downward
+ * makes logged < amountPaid, and that is not ours to "fix" — silently walking
+ * a plan's progress backwards would be a worse bug than the one being healed.
+ *
+ * `db.transaction()` cannot do this job instead: both drizzle drivers this app
+ * uses implement transactions synchronously (`begin`, call the callback,
+ * `commit` — see drizzle-orm/expo-sqlite/session.js), so an async callback
+ * commits at its first await. Same reasoning as notificationRepo's commit
+ * chain; same house style of idempotent recovery on the next run.
+ */
+export async function reconcileInstallmentLedgers(db: Db): Promise<number> {
+  const plans: Installment[] = await db.select().from(installments);
+  let healed = 0;
+  for (const plan of plans) {
+    const rows: { amount: number }[] = await db
+      .select({ amount: transactions.amount })
+      .from(transactions)
+      .where(eq(transactions.installmentId, plan.id));
+    const logged = rows.reduce((acc, row) => acc + row.amount, 0);
+    // A plan can never be more than fully paid, however much was logged.
+    const amountPaid = Math.min(logged, plan.totalAmount);
+    if (amountPaid <= plan.amountPaid) continue;
+    await db
+      .update(installments)
+      .set({ amountPaid, monthsPaid: monthsAfterPayment(plan, amountPaid - plan.amountPaid) })
+      .where(eq(installments.id, plan.id));
+    healed += 1;
+  }
+  return healed;
 }

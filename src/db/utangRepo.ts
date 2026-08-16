@@ -1,6 +1,6 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNotNull, ne } from 'drizzle-orm';
 import { addExpense, addIncome } from './repo';
-import { categories, Utang, utang, utangPayments } from './schema';
+import { categories, Transaction, transactions, Utang, utang, utangPayments } from './schema';
 
 type Db = any;
 
@@ -123,11 +123,11 @@ export async function addUtangPayment(
 }
 
 /**
- * Payment path for a transaction saved with a utang link: the transaction
- * itself is the money log, so only the payment row is recorded here.
- * Expenses pay down my own debts (iOwe); incomes collect what's owed to me.
+ * Validation half of `recordLinkedUtangPayment`, split out because the caller
+ * now writes the transaction (the money log) BEFORE the payment row — so a
+ * wrong-direction or over-payment has to reject before anything is written.
  */
-export async function recordLinkedUtangPayment(
+export async function assertLinkedUtangPayment(
   db: Db,
   kind: 'expense' | 'income',
   input: NewUtangPaymentInput,
@@ -142,7 +142,74 @@ export async function recordLinkedUtangPayment(
         : 'An income can only collect a debt owed to me',
     );
   }
+  const remaining = await utangRemaining(db, input.utangId);
+  if (input.amount > remaining) {
+    throw new Error(`Payment exceeds remaining balance (${remaining} centavos)`);
+  }
+}
+
+/**
+ * Payment path for a transaction saved with a utang link: the transaction
+ * itself is the money log, so only the payment row is recorded here.
+ * Expenses pay down my own debts (iOwe); incomes collect what's owed to me.
+ *
+ * Callers must write the transaction first — see `reconcileUtangPayments`.
+ */
+export async function recordLinkedUtangPayment(
+  db: Db,
+  kind: 'expense' | 'income',
+  input: NewUtangPaymentInput,
+): Promise<void> {
+  await assertLinkedUtangPayment(db, kind, input);
   await addUtangPayment(db, input, { createTransaction: false });
+}
+
+/**
+ * Writes the payment row for any utang-linked transaction that lost its own.
+ *
+ * A payment is always two rows: the transaction (money log, bucket balance)
+ * and the `utang_payments` row (what the debt owes). Both writers put the
+ * transaction first — `addUtangPayment` above, and the add-transaction screen
+ * for links — so process death between the two awaits leaves the debt *behind*
+ * (remaining too high), never ahead. This finishes the pair.
+ *
+ * Matched by COUNT, not by value: editing a payment's amount or date must not
+ * look like a missing row, and deleting a linked transaction (which leaves its
+ * payment row behind) must never make us write another. So only a genuine
+ * surplus of transactions heals, and only the newest ones — the interrupted
+ * write is always the last one.
+ *
+ * `db.transaction()` is no substitute: both drizzle drivers implement it
+ * synchronously (`begin`, callback, `commit`), so an async callback commits at
+ * its first await. Idempotent recovery on the next run is the house pattern —
+ * see notificationRepo's `sourceNotifKey` recovery branch.
+ */
+export async function reconcileUtangPayments(db: Db): Promise<number> {
+  const linked: Transaction[] = await db
+    .select()
+    .from(transactions)
+    .where(and(isNotNull(transactions.utangId), ne(transactions.type, 'transfer')))
+    .orderBy(transactions.id);
+  const byDebt = new Map<number, Transaction[]>();
+  for (const txn of linked) {
+    const list = byDebt.get(txn.utangId!) ?? [];
+    list.push(txn);
+    byDebt.set(txn.utangId!, list);
+  }
+  let healed = 0;
+  for (const [utangId, txns] of byDebt) {
+    const rows = await db.select().from(utangPayments).where(eq(utangPayments.utangId, utangId));
+    for (const txn of txns.slice(rows.length)) {
+      await db.insert(utangPayments).values({
+        utangId,
+        amount: txn.amount,
+        date: txn.date,
+        bucketId: txn.bucketId,
+      });
+      healed += 1;
+    }
+  }
+  return healed;
 }
 
 /** Every debt that still has a balance, both directions. */
