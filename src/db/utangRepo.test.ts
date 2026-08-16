@@ -1,4 +1,5 @@
-import { buckets, transactions, utang as utangTable } from './schema';
+import { eq } from 'drizzle-orm';
+import { buckets, transactions, utang as utangTable, utangPayments } from './schema';
 import { createTestDb, TestDb } from './testDb';
 import { addExpense, bucketBalance } from './repo';
 import { runCatchUp } from '../lib/recurringEngine';
@@ -12,6 +13,22 @@ import {
   utangRemaining,
   utangTotals,
 } from './utangRepo';
+
+/** Counts prepared statements the way query-scope.test.tsx measures perf. */
+function instrumentStatementCount(db: TestDb): () => number {
+  const client = (db as any).session.client;
+  const original = client.prepare.bind(client);
+  let count = 0;
+  client.prepare = (sql: string) => {
+    count += 1;
+    return original(sql);
+  };
+  return () => {
+    const n = count;
+    count = 0;
+    return n;
+  };
+}
 
 describe('utangRepo', () => {
   let db: TestDb;
@@ -214,6 +231,111 @@ describe('utangRepo', () => {
       expect(open).toHaveLength(1);
       expect(open[0].personName).toBe('Maria');
       expect(open[0].remaining).toBe(20000);
+    });
+  });
+
+  /**
+   * listUtang/listOpenUtang used to call utangRemaining per row — a select of
+   * the debt plus a select of its payments, per debt. Rewritten to one
+   * grouped `sum(amount) group by utang_id` query shared across every row,
+   * per bucketBalance's fix in repo.ts (commit 0e654f4). These cases pin the
+   * arithmetic that grouped query must reproduce exactly, since remaining
+   * depends only on originalAmount minus payments — direction never enters
+   * the sum, it only picks which list a debt shows up on.
+   */
+  describe('listUtang / listOpenUtang: grouped-query equivalence', () => {
+    it('a debt with no payments owes the full original amount', async () => {
+      await addUtang(db, { personName: 'Juan', direction: 'iOwe', originalAmount: 50000 });
+      const [row] = await listUtang(db, 'iOwe');
+      expect(row.remaining).toBe(50000);
+      expect((await listOpenUtang(db))[0].remaining).toBe(50000);
+    });
+
+    it('a partially paid debt owes the difference', async () => {
+      const u = await addUtang(db, { personName: 'Juan', direction: 'iOwe', originalAmount: 50000 });
+      await addUtangPayment(db, { utangId: u.id, amount: 20000, date: '2026-07-01', bucketId });
+      const [row] = await listUtang(db, 'iOwe');
+      expect(row.remaining).toBe(30000);
+      expect((await listOpenUtang(db))[0].remaining).toBe(30000);
+    });
+
+    it('an exactly settled debt has zero remaining and drops out of listOpenUtang', async () => {
+      const u = await addUtang(db, { personName: 'Juan', direction: 'iOwe', originalAmount: 50000 });
+      await addUtangPayment(db, { utangId: u.id, amount: 50000, date: '2026-07-01', bucketId });
+      const [row] = await listUtang(db, 'iOwe');
+      expect(row.remaining).toBe(0);
+      expect(await listOpenUtang(db)).toHaveLength(0);
+    });
+
+    it('an overpaid debt goes negative (payment rows inserted directly, bypassing the write guard)', async () => {
+      const u = await addUtang(db, { personName: 'Juan', direction: 'iOwe', originalAmount: 50000 });
+      await db
+        .insert(utangPayments)
+        .values([
+          { utangId: u.id, amount: 30000, date: '2026-07-01', bucketId },
+          { utangId: u.id, amount: 30000, date: '2026-07-02', bucketId },
+        ]);
+      const [row] = await listUtang(db, 'iOwe');
+      expect(row.remaining).toBe(-10000);
+      // still "open" by the > 0 filter's absence, i.e. it must NOT show up,
+      // since listOpenUtang only keeps remaining > 0.
+      expect(await listOpenUtang(db)).toHaveLength(0);
+    });
+
+    it('both directions are aggregated in the same pass without cross-contamination', async () => {
+      const iOwe = await addUtang(db, { personName: 'Juan', direction: 'iOwe', originalAmount: 50000 });
+      const owedToMe = await addUtang(db, {
+        personName: 'Maria',
+        direction: 'owedToMe',
+        originalAmount: 40000,
+      });
+      await addUtangPayment(db, { utangId: iOwe.id, amount: 10000, date: '2026-07-01', bucketId });
+      await addUtangPayment(db, { utangId: owedToMe.id, amount: 15000, date: '2026-07-01', bucketId });
+      expect((await listUtang(db, 'iOwe'))[0].remaining).toBe(40000);
+      expect((await listUtang(db, 'owedToMe'))[0].remaining).toBe(25000);
+    });
+
+    it('a debt whose payments were deleted reverts to fully owed', async () => {
+      const u = await addUtang(db, { personName: 'Juan', direction: 'iOwe', originalAmount: 50000 });
+      await addUtangPayment(db, { utangId: u.id, amount: 20000, date: '2026-07-01', bucketId });
+      expect((await listUtang(db, 'iOwe'))[0].remaining).toBe(30000);
+      await db.delete(utangPayments).where(eq(utangPayments.utangId, u.id));
+      expect((await listUtang(db, 'iOwe'))[0].remaining).toBe(50000);
+      expect((await listOpenUtang(db))[0].remaining).toBe(50000);
+    });
+
+    it('[perf] listUtang/listOpenUtang run a fixed number of statements, not one lookup per debt', async () => {
+      for (let i = 0; i < 10; i += 1) {
+        const u = await addUtang(db, {
+          personName: `Person ${i}`,
+          direction: i % 2 ? 'iOwe' : 'owedToMe',
+          originalAmount: 1000 * (i + 1),
+        });
+        if (i % 3 === 0) {
+          await addUtangPayment(db, { utangId: u.id, amount: 100, date: '2026-07-01', bucketId });
+        }
+      }
+
+      const take = instrumentStatementCount(db);
+      const iOweList = await listUtang(db, 'iOwe');
+      const iOweStatements = take();
+      const openList = await listOpenUtang(db);
+      const openStatements = take();
+
+      expect(iOweList.length).toBeGreaterThan(0);
+      expect(openList.length).toBeGreaterThan(0);
+      console.log(
+        `[perf] utangRepo over 10 debts: listUtang ${iOweStatements} statements, ` +
+          `listOpenUtang ${openStatements} statements`,
+      );
+
+      // Old per-row shape: 1 (select utang[/where direction]) + 2 per debt
+      // (select debt + select payments) inside utangRemaining. For 10 debts
+      // that's >= 20 statements even restricted to one direction, and >= 21
+      // for listOpenUtang's full 10. The grouped rewrite is a constant 2
+      // regardless of row count, so this bound only holds after the fix.
+      expect(iOweStatements).toBeLessThan(10);
+      expect(openStatements).toBeLessThan(10);
     });
   });
 });

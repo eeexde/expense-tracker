@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, ne } from 'drizzle-orm';
+import { and, eq, isNotNull, ne, sql } from 'drizzle-orm';
 import { addExpense, addIncome } from './repo';
 import { categories, Transaction, transactions, Utang, utang, utangPayments } from './schema';
 
@@ -212,15 +212,33 @@ export async function reconcileUtangPayments(db: Db): Promise<number> {
   return healed;
 }
 
+/**
+ * Every debt's amount paid so far, in one grouped query instead of a
+ * `select ... where utang_id = ?` per debt. Debts with no payment rows never
+ * appear on either side of the group-by, so they are simply absent from the
+ * map — callers read that as zero paid, same as an empty `payments` array
+ * summed to 0 in the old per-row version.
+ */
+async function utangPaidTotals(db: Db): Promise<Map<number, number>> {
+  const rows: { utangId: number; paid: number }[] = await db
+    .select({
+      utangId: utangPayments.utangId,
+      paid: sql<number>`coalesce(sum(${utangPayments.amount}), 0)`,
+    })
+    .from(utangPayments)
+    .groupBy(utangPayments.utangId);
+  const paid = new Map<number, number>();
+  for (const row of rows) paid.set(row.utangId, row.paid);
+  return paid;
+}
+
 /** Every debt that still has a balance, both directions. */
 export async function listOpenUtang(db: Db): Promise<UtangWithRemaining[]> {
   const rows: Utang[] = await db.select().from(utang);
-  const result: UtangWithRemaining[] = [];
-  for (const row of rows) {
-    const remaining = await utangRemaining(db, row.id);
-    if (remaining > 0) result.push({ ...row, remaining });
-  }
-  return result;
+  const paid = await utangPaidTotals(db);
+  return rows
+    .map((row) => ({ ...row, remaining: row.originalAmount - (paid.get(row.id) ?? 0) }))
+    .filter((row) => row.remaining > 0);
 }
 
 export async function utangRemaining(db: Db, utangId: number): Promise<number> {
@@ -236,11 +254,8 @@ export async function listUtang(
   direction: 'iOwe' | 'owedToMe',
 ): Promise<UtangWithRemaining[]> {
   const rows: Utang[] = await db.select().from(utang).where(eq(utang.direction, direction));
-  const result: UtangWithRemaining[] = [];
-  for (const row of rows) {
-    result.push({ ...row, remaining: await utangRemaining(db, row.id) });
-  }
-  return result;
+  const paid = await utangPaidTotals(db);
+  return rows.map((row) => ({ ...row, remaining: row.originalAmount - (paid.get(row.id) ?? 0) }));
 }
 
 export async function utangTotals(db: Db): Promise<{ iOwe: number; owedToMe: number }> {

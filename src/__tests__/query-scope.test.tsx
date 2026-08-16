@@ -261,3 +261,31 @@ describe('write invalidation is scoped to the tables the write touched', () => {
     expect(runsOf('txns.list')).toBe(0);
   });
 });
+
+describe('the utang tab is not an N+1 query', () => {
+  it('[perf] mounting the utang tab issues O(1) statements, not one payments lookup per debt', async () => {
+    await act(async () => {
+      render(
+        <DbProvider>
+          <Capture />
+          <UtangTab />
+        </DbProvider>,
+      );
+    });
+    await settle();
+    const mountStatements = take();
+
+    console.log(
+      `[perf] utang tab mount alone (20 debts, 3 queries: totals/iOwe/owedToMe): ` +
+        `${mountStatements} statements`,
+    );
+
+    // Old per-row listUtang: utangTotals calls listUtang for each direction
+    // (2 calls) and the tab calls it again directly for iOwe and owedToMe (2
+    // more) — 4 calls total. Each old call was 1 + 2*rows statements, ~21
+    // statements per call on this 20-debt seed split across directions, i.e.
+    // ~84 statements for the tab. The grouped rewrite makes every call a
+    // small constant, independent of row count.
+    expect(mountStatements).toBeLessThan(20);
+  });
+});
