@@ -87,6 +87,11 @@ export default function StatsScreen() {
   const top = (byCategory ?? []).slice(0, TOP_CATEGORIES);
   const rest = (byCategory ?? []).slice(TOP_CATEGORIES);
   const restTotal = rest.reduce((acc, r) => acc + r.total, 0);
+  // Round the sum, never sum the rounds. `expensesByCategory` already rounded
+  // each row's own pct to a whole number, so adding those up loses everything
+  // that rounded to zero: ten ₱3.99 rows out of a ₱1,000 month are 0% each and
+  // "Others" read 0% while its slice was correctly drawn at 4%.
+  const grandTotal = (byCategory ?? []).reduce((acc, r) => acc + r.total, 0);
   const slices = [
     ...top.map((c, i) => ({ ...c, color: chartCategorical[i] })),
     ...(restTotal > 0
@@ -95,7 +100,7 @@ export default function StatsScreen() {
             categoryId: null,
             categoryName: 'Others',
             total: restTotal,
-            pct: rest.reduce((acc, r) => acc + r.pct, 0),
+            pct: grandTotal === 0 ? 0 : Math.round((restTotal / grandTotal) * 100),
             color: chartOther,
           },
         ]
@@ -147,11 +152,22 @@ export default function StatsScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <View style={styles.monthNav}>
-        <Pressable onPress={() => setMonth(shiftMonth(month, -1))} hitSlop={12}>
+        {/* "‹" and "›" are all a screen reader would otherwise have to go on. */}
+        <Pressable
+          onPress={() => setMonth(shiftMonth(month, -1))}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Previous month"
+        >
           <Text style={styles.monthArrow}>‹</Text>
         </Pressable>
         <Text style={styles.monthLabel}>{monthLabel(month)}</Text>
-        <Pressable onPress={() => setMonth(shiftMonth(month, 1))} hitSlop={12}>
+        <Pressable
+          onPress={() => setMonth(shiftMonth(month, 1))}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Next month"
+        >
           <Text style={styles.monthArrow}>›</Text>
         </Pressable>
       </View>
@@ -264,6 +280,38 @@ export default function StatsScreen() {
             initialSpacing={8}
             disableScroll
           />
+          {/* The bars themselves are an SVG with nothing readable in it, so the
+              same trick the donut above uses: state the data in text. `+`/`−`
+              carry the direction so the two colors are never the only channel,
+              and the row is one accessibility node so TalkBack reads a whole
+              month at a time rather than three disconnected fragments. */}
+          {(trend ?? []).map((point) => (
+            <View
+              key={point.ym}
+              style={styles.categoryRow}
+              accessible
+              accessibilityLabel={`${monthLabel(point.ym)}: income ${formatPeso(
+                point.income,
+              )}, expenses ${formatPeso(point.expenses)}`}
+            >
+              <Text style={styles.categoryName} numberOfLines={1}>
+                {monthLabel(point.ym)}
+              </Text>
+              {/* `colors.income`/`colors.expense`, not the `chart*` pair the
+                  bars are drawn in: those are validated at 3:1 for fills and
+                  read 4.87 / 3.81 against `surface`, which is under AA for
+                  text. Same semantic pair the tiles at the top of this screen
+                  already use. */}
+              <View style={styles.trendValues}>
+                <Text style={[styles.categoryAmount, { color: colors.income }]}>
+                  +{formatPeso(point.income)}
+                </Text>
+                <Text style={[styles.categoryAmount, { color: colors.expense }]}>
+                  −{formatPeso(point.expenses)}
+                </Text>
+              </View>
+            </View>
+          ))}
         </View>
         )}
 
@@ -434,6 +482,7 @@ const styles = StyleSheet.create({
   bucketName: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexShrink: 1 },
   categoryName: { flexShrink: 1, fontFamily: fonts.body, fontSize: 14, color: colors.ink },
   categoryAmount: { fontFamily: fonts.display, fontSize: 14, color: colors.ink },
+  trendValues: { flexDirection: 'row', gap: spacing.sm },
   totalRow: { borderTopWidth: 1 },
   empty: { fontFamily: fonts.body, fontSize: 14, color: colors.inkFaint, paddingVertical: spacing.sm },
   loading: { paddingVertical: spacing.md },

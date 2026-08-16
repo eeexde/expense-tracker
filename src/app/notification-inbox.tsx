@@ -174,7 +174,7 @@ export default function NotificationInboxScreen() {
     <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
       <View style={styles.header}>
         <Text style={styles.title}>Notifications</Text>
-        <Pressable onPress={() => router.back()} hitSlop={8}>
+        <Pressable onPress={() => router.back()} hitSlop={8} accessibilityRole="button">
           <Text style={styles.close}>Done</Text>
         </Pressable>
       </View>

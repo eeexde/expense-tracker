@@ -99,7 +99,7 @@ export default function EditTransactionScreen() {
         }}
         onSubmit={save}
       />
-      <Text style={styles.deleteLink} onPress={confirmDelete}>
+      <Text style={styles.deleteLink} onPress={confirmDelete} accessibilityRole="button">
         Delete this transaction
       </Text>
     </SafeAreaView>

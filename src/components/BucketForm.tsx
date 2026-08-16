@@ -10,7 +10,7 @@ import {
   useSubmitGuard,
 } from './form';
 import { BUCKET_ICON_OPTIONS, Icon } from './Icon';
-import { parsePesoInput } from '@/lib/money';
+import { parsePesoBalanceInput } from '@/lib/money';
 import { colors, radii, spacing } from '@/theme';
 
 export type BucketType = 'bucket' | 'credit';
@@ -31,15 +31,24 @@ interface Props {
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
+const COLOR_ERROR = 'Invalid color — use a 6-digit hex like #2E7D32.';
+const BALANCE_ERROR = 'Invalid balance — use numbers like 1200.50, or -1200.50 for money owed.';
+
 /**
  * Credit cards start owing money more often than not, so their balance
  * accepts a leading minus.
+ *
+ * A *balance* parse, not an amount one: ₱0 is a legitimate starting balance
+ * and the schema default, so parsing it as an amount (which rejects zero)
+ * left every default-balance bucket with Save permanently disabled.
  */
 function parseSignedPesoInput(input: string): number | null {
   const trimmed = input.trim();
   const negative = trimmed.startsWith('-') || trimmed.startsWith('−');
-  const abs = parsePesoInput(negative ? trimmed.slice(1) : trimmed);
-  return abs === null ? null : negative ? -abs : abs;
+  const abs = parsePesoBalanceInput(negative ? trimmed.slice(1) : trimmed);
+  if (abs === null) return null;
+  // `negative && abs === 0` would otherwise hand the db -0.
+  return negative && abs !== 0 ? -abs : abs;
 }
 
 /** Shared fields for the add/edit bucket modals. */
@@ -56,6 +65,7 @@ export function BucketForm({ initial, submitLabel = 'Save', onSubmit }: Props) {
 
   const startingBalance = balanceText.trim() === '' ? 0 : parseSignedPesoInput(balanceText);
   const colorValid = color.trim() === '' || HEX_RE.test(color.trim());
+  const balanceInvalid = balanceText.trim() !== '' && startingBalance === null;
   const valid = name.trim() !== '' && startingBalance !== null && colorValid;
 
   const [submitting, submit] = useSubmitGuard(async () => {
@@ -139,26 +149,31 @@ export function BucketForm({ initial, submitLabel = 'Save', onSubmit }: Props) {
         returnKeyType="next"
         submitBehavior="submit"
         onSubmitEditing={() => balanceRef.current?.focus()}
+        accessibilityLabel="Color (optional, hex)"
+        accessibilityHint={colorValid ? undefined : COLOR_ERROR}
         testID="bucket-color"
       />
+      {!colorValid && <Text style={errorHint}>{COLOR_ERROR}</Text>}
 
       <Text style={formStyles.label}>
         {type === 'credit' ? 'Starting balance (negative = owed)' : 'Starting balance'}
       </Text>
       <FormTextInput
         ref={balanceRef}
-        style={[
-          formStyles.textInput,
-          balanceText.trim() !== '' && startingBalance === null && formStyles.textInputError,
-        ]}
+        style={[formStyles.textInput, balanceInvalid && formStyles.textInputError]}
         value={balanceText}
         onChangeText={setBalanceText}
         placeholder={type === 'credit' ? '-0.00' : '0.00'}
         placeholderTextColor={colors.inkFaint}
         keyboardType={SIGNED_NUMERIC_KEYBOARD}
         returnKeyType="done"
+        accessibilityLabel={
+          type === 'credit' ? 'Starting balance (negative = owed)' : 'Starting balance'
+        }
+        accessibilityHint={balanceInvalid ? BALANCE_ERROR : undefined}
         testID="bucket-balance"
       />
+      {balanceInvalid && <Text style={errorHint}>{BALANCE_ERROR}</Text>}
       <View style={{ height: spacing.xs }} />
 
       <SubmitButton
@@ -170,3 +185,5 @@ export function BucketForm({ initial, submitLabel = 'Save', onSubmit }: Props) {
     </KeyboardAwareForm>
   );
 }
+
+const errorHint = { color: colors.danger, fontSize: 13, marginTop: 4 };

@@ -17,6 +17,9 @@ import { colors } from '@/theme';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+const AMOUNT_ERROR = 'Invalid amount — use numbers like 1200.50.';
+const DAY_ERROR = 'Day must be a whole number from 1 to 31.';
+
 export interface RecurringFormValues {
   name: string;
   amount: number;
@@ -53,6 +56,7 @@ export function RecurringForm({ buckets, categories, initial, onSubmit }: Props)
   const dayDueRef = useRef<TextInput>(null);
 
   const amount = parsePesoInput(amountText);
+  const amountInvalid = amountText.trim() !== '' && amount === null;
   const dayDue = frequency === 'monthly' ? Number(dayDueText) : weekday;
   const dayDueValid =
     frequency === 'weekly' || (Number.isInteger(dayDue) && dayDue >= 1 && dayDue <= 31);
@@ -80,20 +84,20 @@ export function RecurringForm({ buckets, categories, initial, onSubmit }: Props)
       <Text style={formStyles.label}>Amount</Text>
       <FormTextInput
         ref={amountRef}
-        style={[
-          formStyles.textInput,
-          amountText.trim() !== '' && amount === null && formStyles.textInputError,
-        ]}
+        style={[formStyles.textInput, amountInvalid && formStyles.textInputError]}
         value={amountText}
         onChangeText={setAmountText}
         placeholder="0.00"
         placeholderTextColor={colors.inkFaint}
         keyboardType="decimal-pad"
+        accessibilityLabel="Amount"
+        accessibilityHint={amountInvalid ? AMOUNT_ERROR : undefined}
         // Weekly mode picks the day from chips, so there is no next field to jump to.
         {...(NUMERIC_PAD_HAS_RETURN_KEY && frequency === 'monthly'
           ? { ...NUMERIC_PAD_NEXT, onSubmitEditing: () => dayDueRef.current?.focus() }
           : null)}
       />
+      {amountInvalid && <Text style={errorHint}>{AMOUNT_ERROR}</Text>}
 
       <Text style={formStyles.label}>How often</Text>
       <Segmented
@@ -114,7 +118,10 @@ export function RecurringForm({ buckets, categories, initial, onSubmit }: Props)
             value={dayDueText}
             onChangeText={setDayDueText}
             keyboardType="number-pad"
+            accessibilityLabel="Day of month (1 to 31)"
+            accessibilityHint={dayDueValid ? undefined : DAY_ERROR}
           />
+          {!dayDueValid && <Text style={errorHint}>{DAY_ERROR}</Text>}
         </>
       ) : (
         <>
@@ -145,3 +152,5 @@ export function RecurringForm({ buckets, categories, initial, onSubmit }: Props)
     </KeyboardAwareForm>
   );
 }
+
+const errorHint = { color: colors.danger, fontSize: 13, marginTop: 4 };

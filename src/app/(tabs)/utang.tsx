@@ -71,37 +71,57 @@ function UtangSection({
       <Text style={styles.sectionTitle}>{title}</Text>
       {list !== undefined && open.length === 0 && <Text style={styles.empty}>{emptyText}</Text>}
       {open.map((u) => (
-        <Pressable
-          key={u.id}
-          style={styles.card}
-          onPress={() => router.push({ pathname: '/pay-utang', params: { id: String(u.id) } })}
-          onLongPress={() => router.push({ pathname: '/edit-utang', params: { id: String(u.id) } })}
-        >
-          <View style={styles.cardMain}>
-            <Text style={styles.cardTitle}>{u.personName}</Text>
-            <Text style={styles.cardSub}>
-              {u.note ? `${u.note} · ` : ''}orig {formatPeso(u.originalAmount)}
-            </Text>
-          </View>
-          <Text
-            style={[
-              styles.cardAmount,
-              { color: u.direction === 'iOwe' ? colors.expense : colors.income },
-            ]}
+        <View key={u.id} style={styles.card}>
+          <Pressable
+            style={styles.cardMain}
+            onPress={() => router.push({ pathname: '/pay-utang', params: { id: String(u.id) } })}
+            accessibilityRole="button"
+            accessibilityLabel={`Record a payment for ${u.personName}, ${formatPeso(u.remaining)} remaining`}
           >
-            {formatPeso(u.remaining)}
-          </Text>
-        </Pressable>
+            <View style={styles.cardText}>
+              <Text style={styles.cardTitle}>{u.personName}</Text>
+              <Text style={styles.cardSub}>
+                {u.note ? `${u.note} · ` : ''}orig {formatPeso(u.originalAmount)}
+              </Text>
+            </View>
+            <Text
+              style={[
+                styles.cardAmount,
+                { color: u.direction === 'iOwe' ? colors.expense : colors.income },
+              ]}
+            >
+              {formatPeso(u.remaining)}
+            </Text>
+          </Pressable>
+          {/* Editing and deleting an open debt both live behind edit-utang, and
+              a plain tap here goes to pay-utang — so until this button existed
+              the only route to either was `onLongPress`, a gesture TalkBack
+              cannot be relied on to produce. Settled rows below need no
+              equivalent: their own tap already goes to edit-utang. */}
+          <Pressable
+            style={styles.edit}
+            onPress={() => router.push({ pathname: '/edit-utang', params: { id: String(u.id) } })}
+            accessibilityRole="button"
+            accessibilityLabel={`Edit ${u.personName}`}
+            testID={`edit-utang-${u.id}`}
+          >
+            <Text style={styles.editLink}>Edit</Text>
+          </Pressable>
+        </View>
       ))}
       {settled.map((u) => (
         <Pressable
           key={u.id}
           style={[styles.card, styles.settled]}
           onPress={() => router.push({ pathname: '/edit-utang', params: { id: String(u.id) } })}
+          accessibilityRole="button"
+          accessibilityLabel={`Edit ${u.personName}, settled`}
         >
           <View style={styles.cardMain}>
-            <Text style={[styles.cardTitle, { color: colors.inkFaint }]}>{u.personName}</Text>
-            <Text style={styles.cardSub}>Settled ✓ {formatPeso(u.originalAmount)}</Text>
+            <View style={styles.cardText}>
+              <Text style={[styles.cardTitle, { color: colors.inkFaint }]}>{u.personName}</Text>
+              <Text style={styles.cardSub}>Settled ✓ {formatPeso(u.originalAmount)}</Text>
+            </View>
           </View>
         </Pressable>
       ))}
@@ -152,19 +172,33 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     marginBottom: spacing.sm,
   },
+  // Padding lives on the pressables inside, not here, and `stretch` lets them
+  // fill the card's height — same reason as manage-buckets: with the padding on
+  // the card, "Edit" would be the bare ~20dp text block inside a ~66dp card and
+  // the 16dp band around it would be dead.
   card: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'stretch',
     backgroundColor: colors.surface,
     borderColor: colors.border,
     borderWidth: 1,
     borderRadius: radii.md,
-    padding: spacing.md,
     marginBottom: spacing.sm,
-    gap: spacing.sm,
   },
   settled: { opacity: 0.6 },
-  cardMain: { flex: 1, gap: 2 },
+  cardMain: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    minHeight: 44,
+    padding: spacing.md,
+  },
+  cardText: { flex: 1, gap: 2 },
+  // Padding rather than hitSlop, so the Edit target is a real full-card-height
+  // box that abuts the pay box instead of overlapping it.
+  edit: { justifyContent: 'center', paddingHorizontal: spacing.md },
+  editLink: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.gold },
   cardTitle: { fontFamily: fonts.bodyMedium, fontSize: 15, color: colors.ink },
   cardSub: { fontFamily: fonts.body, fontSize: 12, color: colors.inkFaint },
   cardAmount: { fontFamily: fonts.display, fontSize: 16 },

@@ -87,7 +87,9 @@ export default function ManageBucketsScreen() {
             >
               <View style={styles.titleRow}>
                 <Icon name={bucket.icon} size={16} color={colors.gold} />
-                <Text style={styles.cardTitle}>{bucket.name}</Text>
+                <Text style={styles.cardTitle} numberOfLines={1}>
+                  {bucket.name}
+                </Text>
                 {bucket.type === 'credit' && <Text style={styles.creditTag}>CREDIT</Text>}
               </View>
               <Text style={styles.cardSub}>
@@ -148,7 +150,10 @@ const styles = StyleSheet.create({
   // win, because it renders later.
   remove: { justifyContent: 'center', paddingHorizontal: spacing.md },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  cardTitle: { fontFamily: fonts.bodyMedium, fontSize: 15, color: colors.ink },
+  // flexShrink (0 by default in RN) lets a long user-defined bucket name
+  // ellipsize instead of squeezing the CREDIT tag off the row — the same
+  // treatment stats.tsx documents and applies to `categoryName`.
+  cardTitle: { flexShrink: 1, fontFamily: fonts.bodyMedium, fontSize: 15, color: colors.ink },
   creditTag: {
     fontFamily: fonts.bodyBold,
     fontSize: 8,

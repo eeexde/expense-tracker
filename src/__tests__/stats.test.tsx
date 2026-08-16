@@ -192,6 +192,90 @@ describe('stats money-per-bucket section', () => {
 });
 
 /**
+ * The bars are an SVG with nothing readable in it, so the section used to have
+ * no non-visual equivalent at all — where the donut directly above it has
+ * always duplicated its data in a text legend. `mockSixMonthTrend` is stubbed
+ * here rather than seeded through the repo so the six months are fixed values
+ * that do not move with the calendar.
+ */
+describe('stats last-6-months text equivalent', () => {
+  const TREND = [
+    { ym: '2026-03', income: 100000, expenses: 40000 },
+    { ym: '2026-04', income: 0, expenses: 0 },
+    { ym: '2026-05', income: 0, expenses: 0 },
+    { ym: '2026-06', income: 0, expenses: 0 },
+    { ym: '2026-07', income: 0, expenses: 0 },
+    { ym: '2026-08', income: 250000, expenses: 125050 },
+  ];
+
+  it('states every charted month in text, not only in the bars', async () => {
+    mockSixMonthTrend.mockResolvedValue(TREND);
+
+    await render(<StatsScreen />);
+
+    expect(screen.getByTestId('trend-chart')).toBeTruthy();
+    // Both ends of the range, and both series of the busiest month. Without the
+    // text rows these amounts exist nowhere outside the SVG.
+    expect(screen.getByText('+₱1,000.00')).toBeTruthy();
+    expect(screen.getByText('−₱400.00')).toBeTruthy();
+    expect(screen.getByText('+₱2,500.00')).toBeTruthy();
+    expect(screen.getByText('−₱1,250.50')).toBeTruthy();
+  });
+
+  it('reads each month as one labelled node rather than three fragments', async () => {
+    mockSixMonthTrend.mockResolvedValue(TREND);
+
+    await render(<StatsScreen />);
+
+    // The row is `accessible`, so a screen reader gets the month and both
+    // series together — the colored +/− pair alone would be meaningless.
+    expect(
+      screen.getByLabelText('August 2026: income ₱2,500.00, expenses ₱1,250.50'),
+    ).toBeTruthy();
+  });
+});
+
+/**
+ * "Others" folds every category past the top five into one slice. Its percent
+ * used to be the *sum of the already-rounded* per-category percents, so
+ * everything that rounded to zero vanished from it: the slice was drawn at the
+ * right size while its own label disagreed.
+ */
+describe('stats "Others" percentage', () => {
+  it('rounds the summed total, not the sum of the rounded parts', async () => {
+    // ₱1,000.00 across 15 categories: five at ₱192.02 (19% each, the donut's
+    // five colored slots) and ten at ₱3.99. Each of the ten is 0.399% and
+    // rounds to 0, so summing the parts gave "Others" 0% — while ₱39.90 of
+    // ₱1,000.00 is 4% and the slice was drawn as such.
+    mockExpensesByCategory.mockResolvedValue([
+      ...Array.from({ length: 5 }, (_, i) => ({
+        categoryId: i + 1,
+        categoryName: `Big ${i + 1}`,
+        total: 19202,
+        pct: 19,
+      })),
+      ...Array.from({ length: 10 }, (_, i) => ({
+        categoryId: i + 6,
+        categoryName: `Tiny ${i + 1}`,
+        total: 399,
+        pct: 0,
+      })),
+    ]);
+    mockMonthSummary.mockResolvedValue({ income: 0, expenses: 100000, net: -100000 });
+
+    await render(<StatsScreen />);
+
+    // Twice: the donut legend, and the amount list under it.
+    expect(screen.getAllByText('Others')).toHaveLength(2);
+    // The percent is legend-only, and it is the one this defect got wrong.
+    expect(screen.getByText('4%')).toBeTruthy();
+    // No slice in this month is genuinely 0%, so a 0% on screen can only be
+    // the "Others" defect.
+    expect(screen.queryByText('0%')).toBeNull();
+  });
+});
+
+/**
  * A rejected query used to be rethrown out of `useAppQuery` into the root
  * `ErrorBoundary` — which sits above the router `Stack`, so one dead section
  * replaced the whole app and "Try again" dropped the user at the initial route.

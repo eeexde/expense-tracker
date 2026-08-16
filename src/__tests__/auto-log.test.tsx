@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import {
+  Alert,
   FlatList,
   Keyboard,
   KeyboardEvent,
@@ -464,5 +465,71 @@ describe('auto-log source list', () => {
     // being handed the package, or notifications keep arriving for it.
     await waitFor(() => expect(mockSetWatchedPackages).toHaveBeenCalledWith([]));
     expect(await mockTestDb.select().from(notificationSources)).toHaveLength(1);
+  });
+});
+
+/**
+ * Removing a source or a rule used to be `onLongPress` on the whole card and
+ * nothing else — no `onPress`, no role, no label, and no alternative delete UI
+ * anywhere in the app. A long press is not a gesture TalkBack can be relied on
+ * to produce, so both lists were permanently undeletable with a screen reader
+ * on. The queries below are deliberately `getByRole('button', { name })` rather
+ * than a testID: what these tests are defending is precisely that the control
+ * is reachable *as an announced button*, which a testID would not notice.
+ */
+describe('auto-log row removal without a long press', () => {
+  /** Runs the destructive button of the most recent Alert.alert. */
+  async function confirmAlert(alert: jest.SpyInstance) {
+    const buttons = alert.mock.calls.at(-1)?.[2] as
+      | { text: string; style?: string; onPress?: () => void | Promise<void> }[]
+      | undefined;
+    const destructive = buttons?.find((b) => b.style === 'destructive');
+    expect(destructive).toBeDefined();
+    await act(async () => {
+      await destructive!.onPress?.();
+    });
+  }
+
+  let alert: jest.SpyInstance;
+  beforeEach(() => {
+    alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  });
+  afterEach(() => alert.mockRestore());
+
+  it('deletes a source from a labelled button, and re-pushes the watch list', async () => {
+    const { bucketId } = await seedTargets();
+    await mockTestDb
+      .insert(notificationSources)
+      .values({ bucketId, packageName: 'com.bpi.app' })
+      .returning();
+
+    await render(<AutoLogScreen />);
+    await waitFor(() => expect(screen.getByText('com.bpi.app')).toBeTruthy());
+    mockSetWatchedPackages.mockClear();
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Remove Cash (com.bpi.app)' }));
+    await confirmAlert(alert);
+
+    await waitFor(async () => {
+      expect(await mockTestDb.select().from(notificationSources)).toHaveLength(0);
+    });
+    // The listener has to be told, or it keeps waking the app for a source that
+    // no longer has anywhere to log to.
+    expect(mockSetWatchedPackages).toHaveBeenCalledWith([]);
+  });
+
+  it('deletes a category rule from a labelled button', async () => {
+    const { categoryId } = await seedTargets();
+    await mockTestDb.insert(categoryRules).values({ keyword: 'jollibee', categoryId }).returning();
+
+    await render(<AutoLogScreen />);
+    await waitFor(() => expect(screen.getByText('jollibee → Food')).toBeTruthy());
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Remove rule jollibee' }));
+    await confirmAlert(alert);
+
+    await waitFor(async () => {
+      expect(await mockTestDb.select().from(categoryRules)).toHaveLength(0);
+    });
   });
 });

@@ -74,11 +74,22 @@ export default function TransactionsScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <View style={styles.monthNav}>
-        <Pressable onPress={() => setMonth(shiftMonth(month, -1))} hitSlop={12}>
+        {/* "‹" and "›" are all a screen reader would otherwise have to go on. */}
+        <Pressable
+          onPress={() => setMonth(shiftMonth(month, -1))}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Previous month"
+        >
           <Text style={styles.monthArrow}>‹</Text>
         </Pressable>
         <Text style={styles.monthLabel}>{monthLabel(month)}</Text>
-        <Pressable onPress={() => setMonth(shiftMonth(month, 1))} hitSlop={12}>
+        <Pressable
+          onPress={() => setMonth(shiftMonth(month, 1))}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Next month"
+        >
           <Text style={styles.monthArrow}>›</Text>
         </Pressable>
       </View>

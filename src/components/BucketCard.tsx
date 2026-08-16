@@ -17,7 +17,9 @@ export function BucketCard({ bucket, balance, onPress }: Props) {
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${bucket.name}, ${formatPeso(balance)}`}
+      // The CREDIT tag is part of what this card says; leaving it out of the
+      // label made the badge sighted-only.
+      accessibilityLabel={`${bucket.name}${credit ? ', credit card' : ''}, ${formatPeso(balance)}`}
     >
       <View style={styles.topRow}>
         <Icon name={bucket.icon} size={20} color={colors.gold} />

@@ -170,7 +170,7 @@ export function AiParsingSection({ db, refresh }: Props) {
               Download failed: {downloadError}
             </Text>
           )}
-          <Pressable style={styles.action} onPress={runDownload}>
+          <Pressable style={styles.action} onPress={runDownload} accessibilityRole="button">
             <Text style={styles.actionTitle}>
               {downloadError ? 'Retry download' : 'Download AI model'}
             </Text>
@@ -185,7 +185,17 @@ export function AiParsingSection({ db, refresh }: Props) {
             <View style={styles.progressTrack}>
               <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
             </View>
-            <Text style={styles.cardSub}>Downloading… {Math.round(progress * 100)}%</Text>
+            {/* Announced, since the visible bar is the only sign a ~1GB
+                download is moving. The label is quantized to 10% because a live
+                region fires on every change of its own text: at raw percent
+                that is a hundred interruptions across one download. */}
+            <Text
+              style={styles.cardSub}
+              accessibilityLiveRegion="polite"
+              accessibilityLabel={`Downloading AI model, ${Math.floor(progress * 10) * 10} percent`}
+            >
+              Downloading… {Math.round(progress * 100)}%
+            </Text>
           </View>
         </View>
       )}
@@ -208,12 +218,19 @@ export function AiParsingSection({ db, refresh }: Props) {
             style={[styles.action, deleting && styles.actionBusy]}
             onPress={confirmDelete}
             disabled={deleting}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: deleting, busy: deleting }}
           >
             <Text style={styles.actionTitle}>
               {deleting ? 'Deleting…' : 'Delete model'}
             </Text>
+            {/* deleteModel waits out any in-flight load and any running
+                inference, so this can sit for tens of seconds with nothing else
+                on screen changing. */}
             {deleting && (
-              <Text style={styles.actionSub}>Waiting for anything still using the model…</Text>
+              <Text style={styles.actionSub} accessibilityLiveRegion="polite">
+                Waiting for anything still using the model…
+              </Text>
             )}
           </Pressable>
         </>

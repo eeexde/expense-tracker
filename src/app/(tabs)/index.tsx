@@ -109,7 +109,15 @@ export default function HomeScreen() {
         accessibilityRole="button"
         accessibilityLabel="Add transaction"
       >
-        <Text style={styles.fabText}>＋</Text>
+        {/* The FAB is a fixed 60dp circle, so its glyph cannot be allowed to
+            scale with it: at the system's 2.0x font setting this "＋" takes a
+            ~68dp line box and bursts out of the button. Pinning it costs
+            nothing — it is a shape, not text, and what a large-text or
+            screen-reader user actually gets is the "Add transaction" label
+            above, which still scales/announces normally. */}
+        <Text style={styles.fabText} allowFontScaling={false}>
+          ＋
+        </Text>
       </Pressable>
     </SafeAreaView>
   );

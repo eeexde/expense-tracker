@@ -74,10 +74,10 @@ export default function EditRecurringScreen() {
         }}
         onSubmit={save}
       />
-      <Text style={styles.toggleLink} onPress={toggleActive}>
+      <Text style={styles.toggleLink} onPress={toggleActive} accessibilityRole="button">
         {rule.active ? 'Pause this rule' : 'Resume this rule'}
       </Text>
-      <Text style={formStyles.deleteLink} onPress={confirmDelete}>
+      <Text style={formStyles.deleteLink} onPress={confirmDelete} accessibilityRole="button">
         Delete this rule
       </Text>
     </SafeAreaView>

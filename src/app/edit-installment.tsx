@@ -65,7 +65,7 @@ export default function EditInstallmentScreen() {
         }}
         onSubmit={save}
       />
-      <Text style={formStyles.deleteLink} onPress={confirmDelete}>
+      <Text style={formStyles.deleteLink} onPress={confirmDelete} accessibilityRole="button">
         Delete this plan
       </Text>
     </SafeAreaView>

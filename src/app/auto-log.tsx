@@ -39,6 +39,7 @@ import {
 import { buckets as bucketsTable, categories as categoriesTable } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { AiParsingSection } from '@/components/AiParsingSection';
+import { Icon } from '@/components/Icon';
 import { colors, fonts, radii, spacing } from '@/theme';
 import {
   getLaunchableApps,
@@ -213,7 +214,7 @@ export default function AutoLogScreen() {
       <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
         <View style={styles.header}>
           <Text style={styles.title}>Auto-log</Text>
-          <Pressable onPress={() => router.back()} hitSlop={8}>
+          <Pressable onPress={() => router.back()} hitSlop={8} accessibilityRole="button">
             <Text style={styles.close}>Done</Text>
           </Pressable>
         </View>
@@ -245,7 +246,7 @@ export default function AutoLogScreen() {
     <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
       <View style={styles.header}>
         <Text style={styles.title}>Auto-log</Text>
-        <Pressable onPress={() => router.back()} hitSlop={8}>
+        <Pressable onPress={() => router.back()} hitSlop={8} accessibilityRole="button">
           <Text style={styles.close}>Done</Text>
         </Pressable>
       </View>
@@ -260,25 +261,22 @@ export default function AutoLogScreen() {
             Kuripot reads bank/e-wallet notifications on-device to auto-log transactions. Nothing
             leaves your phone.
           </Text>
-          <Pressable style={styles.action} onPress={openSettings}>
+          <Pressable style={styles.action} onPress={openSettings} accessibilityRole="button">
             <Text style={styles.actionTitle}>Open notification access settings</Text>
           </Pressable>
         </View>
 
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>Sources</Text>
-          <Pressable onPress={openSourceModal} hitSlop={8}>
+          <Pressable onPress={openSourceModal} hitSlop={8} accessibilityRole="button">
             <Text style={styles.addLink}>＋ Add source</Text>
           </Pressable>
         </View>
         {(sources ?? []).map((source) => {
           const bucketName = allBuckets?.find((b) => b.id === source.bucketId)?.name ?? 'Unknown bucket';
+          const sourceLabel = `${bucketName} (${source.packageName})`;
           return (
-            <Pressable
-              key={source.id}
-              style={styles.card}
-              onLongPress={() => confirmDeleteSource(source.id, `${bucketName} (${source.packageName})`)}
-            >
+            <View key={source.id} style={styles.card}>
               <View style={styles.cardMain}>
                 <Text style={styles.cardTitle}>{bucketName}</Text>
                 <Text style={styles.cardSub}>{source.packageName}</Text>
@@ -293,8 +291,18 @@ export default function AutoLogScreen() {
                 onValueChange={(value) => toggleSource(source.id, value)}
                 trackColor={{ false: colors.border, true: colors.goldDim }}
                 thumbColor={source.enabled ? colors.gold : colors.inkFaint}
+                accessibilityLabel={`Auto-log ${sourceLabel}`}
               />
-            </Pressable>
+              <Pressable
+                style={styles.remove}
+                onPress={() => confirmDeleteSource(source.id, sourceLabel)}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove ${sourceLabel}`}
+                testID={`remove-source-${source.id}`}
+              >
+                <Icon name="trash" size={18} color={colors.inkDim} />
+              </Pressable>
+            </View>
           );
         })}
         {sources !== undefined && sources.length === 0 && (
@@ -303,30 +311,35 @@ export default function AutoLogScreen() {
 
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>Category rules</Text>
-          <Pressable onPress={openRuleModal} hitSlop={8}>
+          <Pressable onPress={openRuleModal} hitSlop={8} accessibilityRole="button">
             <Text style={styles.addLink}>＋ Add rule</Text>
           </Pressable>
         </View>
         {(rules ?? []).map((rule) => {
           const categoryName = allCategories?.find((c) => c.id === rule.categoryId)?.name ?? 'Unknown category';
           return (
-            <Pressable
-              key={rule.id}
-              style={styles.card}
-              onLongPress={() => confirmDeleteRule(rule.id, rule.keyword)}
-            >
+            <View key={rule.id} style={styles.card}>
               <View style={styles.cardMain}>
                 <Text style={styles.cardTitle}>
                   {rule.keyword} → {categoryName}
                 </Text>
               </View>
-            </Pressable>
+              <Pressable
+                style={styles.remove}
+                onPress={() => confirmDeleteRule(rule.id, rule.keyword)}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove rule ${rule.keyword}`}
+                testID={`remove-rule-${rule.id}`}
+              >
+                <Icon name="trash" size={18} color={colors.inkDim} />
+              </Pressable>
+            </View>
           );
         })}
         {rules !== undefined && rules.length === 0 && (
           <Text style={styles.empty}>No rules yet. Keywords auto-assign a category on match.</Text>
         )}
-        <Text style={styles.hint}>Long-press a row to remove it.</Text>
+        <Text style={styles.hint}>Tap the trash icon on a row to remove it.</Text>
 
         <AiParsingSection db={db} refresh={refresh} />
       </ScrollView>
@@ -353,7 +366,11 @@ export default function AutoLogScreen() {
             <SafeAreaView style={styles.sheet} edges={['bottom']}>
               <View style={styles.header}>
                 <Text style={styles.title}>Add source</Text>
-                <Pressable onPress={() => setSourceModalOpen(false)} hitSlop={8}>
+                <Pressable
+                  onPress={() => setSourceModalOpen(false)}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                >
                   <Text style={styles.close}>Cancel</Text>
                 </Pressable>
               </View>
@@ -451,7 +468,11 @@ export default function AutoLogScreen() {
             <SafeAreaView style={styles.sheet} edges={['bottom']}>
               <View style={styles.header}>
                 <Text style={styles.title}>Add rule</Text>
-                <Pressable onPress={() => setRuleModalOpen(false)} hitSlop={8}>
+                <Pressable
+                  onPress={() => setRuleModalOpen(false)}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                >
                   <Text style={styles.close}>Cancel</Text>
                 </Pressable>
               </View>
@@ -567,6 +588,13 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   cardMain: { flex: 1, gap: 2 },
+  // Removing a source/rule used to be `onLongPress` on the whole card and
+  // nothing else, which is not a gesture TalkBack can be relied on to produce —
+  // so the rows were undeletable with a screen reader on. Same trailing trash
+  // button manage-buckets/manage-categories use. The card keeps its own padding
+  // here (there is no full-card Edit pressable to abut), so this only has to be
+  // its own 44dp target.
+  remove: { justifyContent: 'center', alignItems: 'center', minWidth: 44, minHeight: 44 },
   cardTitle: { fontFamily: fonts.bodyMedium, fontSize: 15, color: colors.ink },
   cardSub: { fontFamily: fonts.body, fontSize: 13, color: colors.inkFaint },
   keywordChip: {

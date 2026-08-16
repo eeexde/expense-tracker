@@ -66,7 +66,9 @@ export default function ManageCategoriesScreen() {
         accessibilityLabel={`Edit ${cat.name}`}
       >
         <Icon name={cat.icon} size={16} color={colors.gold} />
-        <Text style={styles.cardTitle}>{cat.name}</Text>
+        <Text style={styles.cardTitle} numberOfLines={1}>
+          {cat.name}
+        </Text>
       </Pressable>
       <Pressable
         style={styles.remove}
@@ -167,7 +169,10 @@ const styles = StyleSheet.create({
   // a hitSlop wide enough for 44dp used to spill over the Edit pressable and
   // win, because it renders later.
   remove: { justifyContent: 'center', paddingHorizontal: spacing.md },
-  cardTitle: { fontFamily: fonts.bodyMedium, fontSize: 15, color: colors.ink },
+  // flexShrink (0 by default in RN) lets a long user-defined category name
+  // ellipsize instead of pushing the trash button off the card — the same
+  // treatment stats.tsx documents and applies to `categoryName`.
+  cardTitle: { flexShrink: 1, fontFamily: fonts.bodyMedium, fontSize: 15, color: colors.ink },
   empty: { fontFamily: fonts.body, fontSize: 14, color: colors.inkFaint, paddingVertical: spacing.sm },
   hint: { fontFamily: fonts.body, fontSize: 11, color: colors.inkFaint, marginTop: spacing.md },
 });

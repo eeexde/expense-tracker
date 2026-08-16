@@ -1,4 +1,10 @@
-import { centavosToInput, formatPeso, parsePesoInput, sum } from './money';
+import {
+  centavosToInput,
+  formatPeso,
+  parsePesoBalanceInput,
+  parsePesoInput,
+  sum,
+} from './money';
 
 describe('formatPeso', () => {
   it('formats zero', () => {
@@ -48,6 +54,27 @@ describe('parsePesoInput', () => {
   });
 });
 
+describe('parsePesoBalanceInput', () => {
+  // A bucket holding ₱0 is ordinary — and 0 is the schema default — so the
+  // balance parser has to accept what the amount parser deliberately rejects.
+  // Rejecting it here left every default-balance bucket permanently unsavable.
+  it('accepts exactly zero, which parsePesoInput rejects', () => {
+    expect(parsePesoBalanceInput('0')).toBe(0);
+    expect(parsePesoBalanceInput('0.00')).toBe(0);
+    expect(parsePesoInput('0.00')).toBeNull();
+  });
+
+  it('shares the rest of parsePesoInput\'s grammar', () => {
+    expect(parsePesoBalanceInput('1,234.50')).toBe(123450);
+    expect(parsePesoBalanceInput(' ₱99.99 ')).toBe(9999);
+    expect(parsePesoBalanceInput('')).toBeNull();
+    expect(parsePesoBalanceInput('abc')).toBeNull();
+    expect(parsePesoBalanceInput('1.234')).toBeNull();
+    // The leading minus is peeled off by the caller, not here.
+    expect(parsePesoBalanceInput('-5')).toBeNull();
+  });
+});
+
 describe('centavosToInput', () => {
   it('drops the decimals for whole pesos', () => {
     expect(centavosToInput(25000)).toBe('250');
@@ -58,9 +85,31 @@ describe('centavosToInput', () => {
     expect(centavosToInput(5)).toBe('0.05');
   });
 
+  // Math.floor rounds away from zero on negatives while % keeps the sign, so
+  // the two used to disagree and render -150 as "-2.-50" — text no parser can
+  // read back, which disabled Save with no way to correct it.
+  it('formats negative centavos without mangling the split', () => {
+    expect(centavosToInput(-150)).toBe('-1.50');
+    expect(centavosToInput(-5)).toBe('-0.05');
+    expect(centavosToInput(-123450)).toBe('-1234.50');
+  });
+
+  it('drops the decimals for whole negative pesos', () => {
+    expect(centavosToInput(-100)).toBe('-1');
+    expect(centavosToInput(-25000)).toBe('-250');
+  });
+
   it('round-trips through parsePesoInput', () => {
     for (const c of [1, 5, 99, 100, 1050, 123450, 9999]) {
       expect(parsePesoInput(centavosToInput(c))).toBe(c);
+    }
+  });
+
+  it('round-trips negatives the way the signed balance field reads them', () => {
+    for (const c of [-1, -5, -150, -100, -123450]) {
+      const text = centavosToInput(c);
+      expect(text.startsWith('-')).toBe(true);
+      expect(-(parsePesoBalanceInput(text.slice(1)) as number)).toBe(c);
     }
   });
 });

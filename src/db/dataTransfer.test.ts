@@ -12,7 +12,7 @@ import {
   utangPayments,
 } from './schema';
 import { createTestDb, TestDb } from './testDb';
-import { addExpense } from './repo';
+import { addExpense, bucketBalance } from './repo';
 import { addUtang, addUtangPayment } from './utangRepo';
 import { addCategoryRule, addSource } from './notificationRepo';
 import { setSetting } from './settingsRepo';
@@ -96,6 +96,120 @@ describe('dataTransfer', () => {
     const rows = await db.select().from(buckets);
     expect(rows).toHaveLength(1);
     expect(rows[0].name).toBe('Keep me');
+  });
+
+  describe('money/date column validation', () => {
+    /** A seeded export plus a fresh target holding one bucket worth ₱1,000. */
+    async function corruptedImport(mutate: (payload: any) => void) {
+      const source = createTestDb();
+      await seedSample(source);
+      const payload = await exportData(source);
+      mutate(payload);
+
+      const target = createTestDb();
+      const [keep] = await target
+        .insert(buckets)
+        .values({ name: 'Keep me', startingBalance: 100000 })
+        .returning();
+      return { payload, target, keep };
+    }
+
+    // bucketBalance negates expenses in SQL, so a negative expense amount ADDS
+    // to the balance instead of subtracting — a silent, permanent inversion.
+    it('rejects a negative transaction amount without deleting anything', async () => {
+      const { payload, target, keep } = await corruptedImport((p) => {
+        const expense = p.data.transactions.find((t: any) => t.type === 'expense');
+        expense.amount = -50000;
+      });
+
+      await expect(importData(target, payload)).rejects.toThrow(/amount/i);
+
+      // Validation runs before BEGIN, so the target is untouched — not rolled back.
+      const rows = await target.select().from(buckets);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].name).toBe('Keep me');
+      expect(await bucketBalance(target, keep.id)).toBe(100000);
+      expect(await target.select().from(transactions)).toHaveLength(0);
+    });
+
+    it('rejects a zero transaction amount', async () => {
+      const { payload, target } = await corruptedImport((p) => {
+        p.data.transactions[0].amount = 0;
+      });
+      await expect(importData(target, payload)).rejects.toThrow(/amount/i);
+    });
+
+    // A non-YYYY-MM-DD date vanishes from every month-filtered view while still
+    // counting toward totalMoney.
+    it('rejects a malformed transaction date without deleting anything', async () => {
+      const { payload, target } = await corruptedImport((p) => {
+        p.data.transactions[0].date = '07/01/2026';
+      });
+
+      await expect(importData(target, payload)).rejects.toThrow(/date/i);
+
+      const rows = await target.select().from(buckets);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].name).toBe('Keep me');
+    });
+
+    it('rejects a non-integer money value', async () => {
+      const { payload, target } = await corruptedImport((p) => {
+        p.data.transactions[0].amount = 50.5;
+      });
+      await expect(importData(target, payload)).rejects.toThrow(/amount/i);
+    });
+
+    it('rejects bad money and dates in the other tables too', async () => {
+      for (const [mutate, pattern] of [
+        [(p: any) => (p.data.utang[0].originalAmount = -1), /originalAmount/],
+        [(p: any) => (p.data.utangPayments[0].amount = -1), /amount/],
+        [(p: any) => (p.data.utangPayments[0].date = 'yesterday'), /date/],
+        [(p: any) => (p.data.recurring[0].amount = 0), /amount/],
+        [(p: any) => (p.data.recurring[0].startDate = '2026-1-1'), /startDate/],
+        [(p: any) => (p.data.installments[0].monthlyDue = -100), /monthlyDue/],
+        [(p: any) => (p.data.installments[0].amountPaid = -1), /amountPaid/],
+        [(p: any) => (p.data.buckets[0].startingBalance = 12.5), /startingBalance/],
+      ] as [(p: any) => void, RegExp][]) {
+        const { payload, target } = await corruptedImport(mutate);
+        await expect(importData(target, payload)).rejects.toThrow(pattern);
+      }
+    });
+
+    it('names the table and row so the user can find the bad record', async () => {
+      const { payload, target } = await corruptedImport((p) => {
+        p.data.transactions[0].amount = -1;
+      });
+      await expect(importData(target, payload)).rejects.toThrow(
+        /transactions row 1.*Nothing was imported/s,
+      );
+    });
+
+    // Guard against over-validation: these are all legal.
+    it('still imports legitimately negative bucket balances and null dates', async () => {
+      const source = createTestDb();
+      await seedSample(source);
+      await source
+        .insert(buckets)
+        .values({ name: 'BPI Card', type: 'credit', startingBalance: -250000 });
+      const payload = await exportData(source);
+      // recurring.endDate / lastPostedDate are nullable and unset here.
+      expect(payload.data.recurring[0].endDate).toBeNull();
+
+      const target = createTestDb();
+      await importData(target, payload);
+      const card = (await target.select().from(buckets)).find((b) => b.name === 'BPI Card');
+      expect(card?.startingBalance).toBe(-250000);
+    });
+
+    it('still imports a zero starting balance', async () => {
+      const source = createTestDb();
+      await source.insert(buckets).values({ name: 'Fresh' });
+      const payload = await exportData(source);
+      const target = createTestDb();
+      await importData(target, payload);
+      expect((await target.select().from(buckets))[0].startingBalance).toBe(0);
+    });
   });
 
   it('validateExportPayload accepts a fresh export', async () => {

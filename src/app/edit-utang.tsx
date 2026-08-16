@@ -66,7 +66,7 @@ export default function EditUtangScreen() {
         }}
         onSubmit={save}
       />
-      <Text style={formStyles.deleteLink} onPress={confirmDelete}>
+      <Text style={formStyles.deleteLink} onPress={confirmDelete} accessibilityRole="button">
         Delete this debt
       </Text>
     </SafeAreaView>

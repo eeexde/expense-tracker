@@ -20,6 +20,8 @@ export interface UtangFormValues {
   note?: string;
 }
 
+const AMOUNT_ERROR = 'Invalid amount — use numbers like 1200.50.';
+
 interface Props {
   initial?: UtangFormValues;
   /** Centavos already paid — the amount can't drop below this, direction locks. */
@@ -40,7 +42,9 @@ export function UtangForm({ initial, paid = 0, onSubmit }: Props) {
 
   const directionLocked = paid > 0;
   const amount = parsePesoInput(amountText);
+  const amountInvalid = amountText.trim() !== '' && amount === null;
   const belowPaid = amount !== null && amount < paid;
+  const belowPaidMessage = `Amount is below the ${formatPeso(paid)} already paid.`;
   const valid = personName.trim() !== '' && amount !== null && !belowPaid;
 
   const [submitting, submit] = useSubmitGuard(async () => {
@@ -86,21 +90,23 @@ export function UtangForm({ initial, paid = 0, onSubmit }: Props) {
         ref={amountRef}
         style={[
           formStyles.textInput,
-          amountText.trim() !== '' && amount === null && formStyles.textInputError,
-          belowPaid && formStyles.textInputError,
+          (amountInvalid || belowPaid) && formStyles.textInputError,
         ]}
         value={amountText}
         onChangeText={setAmountText}
         placeholder="0.00"
         placeholderTextColor={colors.inkFaint}
         keyboardType="decimal-pad"
+        accessibilityLabel="Amount"
+        accessibilityHint={
+          amountInvalid ? AMOUNT_ERROR : belowPaid ? belowPaidMessage : undefined
+        }
         {...(NUMERIC_PAD_HAS_RETURN_KEY
           ? { ...NUMERIC_PAD_NEXT, onSubmitEditing: () => noteRef.current?.focus() }
           : null)}
       />
-      {belowPaid && (
-        <Text style={errorHint}>Amount is below the {formatPeso(paid)} already paid.</Text>
-      )}
+      {amountInvalid && <Text style={errorHint}>{AMOUNT_ERROR}</Text>}
+      {belowPaid && <Text style={errorHint}>{belowPaidMessage}</Text>}
 
       <Text style={formStyles.label}>Note</Text>
       <FormTextInput

@@ -18,11 +18,20 @@ import { colors, fonts, radii, spacing, todayLocal } from '@/theme';
 
 type Busy = 'export' | 'import' | null;
 
+/**
+ * The one line of feedback these two buttons ever produce. `ok` is carried
+ * alongside the text because the outcome is not recoverable from the string:
+ * "Import failed — nothing was changed." used to render in `colors.income`
+ * like every success, which is the wrong signal after an explicitly
+ * irreversible restore.
+ */
+type Status = { text: string; ok: boolean };
+
 export default function SettingsScreen() {
   const router = useRouter();
   const { db, refresh } = useDb();
   const [busy, setBusy] = useState<Busy>(null);
-  const [status, setStatus] = useState<string | null>(null);
+  const [status, setStatus] = useState<Status | null>(null);
 
   const runExport = (mode: 'download' | 'share') => async () => {
     setBusy('export');
@@ -32,13 +41,17 @@ export default function SettingsScreen() {
       const count = Object.values(payload.data).reduce((n, rows) => n + rows.length, 0);
       if (mode === 'download') {
         const saved = await downloadBackup(payload, todayLocal());
-        setStatus(saved ? `Saved ${saved} (${count} records).` : null);
+        setStatus(saved ? { text: `Saved ${saved} (${count} records).`, ok: true } : null);
       } else {
         const shared = await shareBackup(payload, todayLocal());
-        setStatus(shared ? `Exported ${count} records.` : 'Sharing is not available on this device.');
+        setStatus(
+          shared
+            ? { text: `Exported ${count} records.`, ok: true }
+            : { text: 'Sharing is not available on this device.', ok: false },
+        );
       }
     } catch (e) {
-      setStatus(e instanceof Error ? e.message : 'Export failed.');
+      setStatus({ text: e instanceof Error ? e.message : 'Export failed.', ok: false });
     } finally {
       setBusy(null);
     }
@@ -57,7 +70,7 @@ export default function SettingsScreen() {
     try {
       payload = await pickBackup();
     } catch (e) {
-      setStatus(e instanceof Error ? e.message : 'Could not read that file.');
+      setStatus({ text: e instanceof Error ? e.message : 'Could not read that file.', ok: false });
       return;
     }
     if (payload === null) return; // user cancelled
@@ -76,9 +89,12 @@ export default function SettingsScreen() {
             try {
               await importData(db, payload as any);
               refresh();
-              setStatus('Import complete. Your data has been replaced.');
+              setStatus({ text: 'Import complete. Your data has been replaced.', ok: true });
             } catch (e) {
-              setStatus(e instanceof Error ? e.message : 'Import failed — nothing was changed.');
+              setStatus({
+                text: e instanceof Error ? e.message : 'Import failed — nothing was changed.',
+                ok: false,
+              });
             } finally {
               setBusy(null);
             }
@@ -113,13 +129,23 @@ export default function SettingsScreen() {
           data.
         </Text>
 
+        {/* A bare spinner was the whole busy state: no label, no
+            `accessibilityState.busy`, so a screen reader got nothing at all
+            during a multi-second destructive operation. The spinner now carries
+            a visible label, and the button reports itself busy. */}
         <Pressable
           style={[styles.action, busy && styles.actionDisabled]}
           onPress={chooseExport}
           disabled={busy !== null}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: busy !== null, busy: busy === 'export' }}
+          testID="export-action"
         >
           {busy === 'export' ? (
-            <ActivityIndicator color={colors.gold} />
+            <View style={styles.busyRow}>
+              <ActivityIndicator color={colors.gold} />
+              <Text style={styles.actionTitle}>Exporting…</Text>
+            </View>
           ) : (
             <>
               <Text style={styles.actionTitle}>Export data</Text>
@@ -132,9 +158,15 @@ export default function SettingsScreen() {
           style={[styles.action, busy && styles.actionDisabled]}
           onPress={runImport}
           disabled={busy !== null}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: busy !== null, busy: busy === 'import' }}
+          testID="import-action"
         >
           {busy === 'import' ? (
-            <ActivityIndicator color={colors.gold} />
+            <View style={styles.busyRow}>
+              <ActivityIndicator color={colors.gold} />
+              <Text style={styles.actionTitle}>Importing…</Text>
+            </View>
           ) : (
             <>
               <Text style={styles.actionTitle}>Import data</Text>
@@ -143,10 +175,25 @@ export default function SettingsScreen() {
           )}
         </Pressable>
 
-        {status && <Text style={styles.status}>{status}</Text>}
+        {/* Announced, not just drawn: this line is the only report an import
+            ever gives, and the user's attention is on a dialog that has just
+            closed rather than on the bottom of the Data section. */}
+        {status && (
+          <Text
+            style={[styles.status, status.ok ? styles.statusOk : styles.statusFail]}
+            accessibilityLiveRegion="assertive"
+            testID="backup-status"
+          >
+            {status.text}
+          </Text>
+        )}
 
         <Text style={styles.sectionTitle}>Organize</Text>
-        <Pressable style={styles.action} onPress={() => router.push('/manage-categories')}>
+        <Pressable
+          style={styles.action}
+          onPress={() => router.push('/manage-categories')}
+          accessibilityRole="button"
+        >
           <Text style={styles.actionTitle}>Manage categories</Text>
           <Text style={styles.actionSub}>Add, rename, re-icon, or archive expense and income categories.</Text>
         </Pressable>
@@ -154,7 +201,11 @@ export default function SettingsScreen() {
         {Platform.OS === 'android' && (
           <>
             <Text style={styles.sectionTitle}>Automation</Text>
-            <Pressable style={styles.action} onPress={() => router.push('/auto-log')}>
+            <Pressable
+              style={styles.action}
+              onPress={() => router.push('/auto-log')}
+              accessibilityRole="button"
+            >
               <Text style={styles.actionTitle}>Auto-log from notifications</Text>
               <Text style={styles.actionSub}>
                 Automatically capture expenses and income from bank/e-wallet notifications.
@@ -207,11 +258,18 @@ const styles = StyleSheet.create({
   actionDisabled: { opacity: 0.5 },
   actionTitle: { fontFamily: fonts.bodyBold, fontSize: 16, color: colors.ink },
   actionSub: { fontFamily: fonts.body, fontSize: 13, color: colors.inkFaint },
+  busyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
   status: {
     fontFamily: fonts.bodyMedium,
     fontSize: 14,
-    color: colors.income,
     marginTop: spacing.md,
     textAlign: 'center',
   },
+  statusOk: { color: colors.income },
+  statusFail: { color: colors.danger },
 });

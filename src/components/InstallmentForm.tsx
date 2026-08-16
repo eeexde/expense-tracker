@@ -22,6 +22,10 @@ export interface InstallmentFormValues {
   bucketId: number;
 }
 
+const AMOUNT_ERROR = 'Invalid amount — use numbers like 1200.50.';
+const MONTHS_ERROR = 'Months must be a whole number from 1 to 60.';
+const DAY_ERROR = 'Day must be a whole number from 1 to 31.';
+
 interface Props {
   buckets: Bucket[];
   initial?: InstallmentFormValues;
@@ -48,6 +52,8 @@ export function InstallmentForm({ buckets, initial, amountPaid = 0, onSubmit }: 
   const dayDue = Number(dayDueText);
   const monthsValid = Number.isInteger(monthsTotal) && monthsTotal >= 1 && monthsTotal <= 60;
   const dayValid = Number.isInteger(dayDue) && dayDue >= 1 && dayDue <= 31;
+  const monthlyInvalid = monthlyText.trim() !== '' && monthlyDue === null;
+  const monthsInvalid = monthsText.trim() !== '' && !monthsValid;
   const total = monthlyDue !== null && monthsValid ? monthlyDue * monthsTotal : null;
   const belowPaid = total !== null && total < amountPaid;
   const valid =
@@ -80,36 +86,36 @@ export function InstallmentForm({ buckets, initial, amountPaid = 0, onSubmit }: 
       <Text style={formStyles.label}>Monthly payment</Text>
       <FormTextInput
         ref={monthlyRef}
-        style={[
-          formStyles.textInput,
-          monthlyText.trim() !== '' && monthlyDue === null && formStyles.textInputError,
-        ]}
+        style={[formStyles.textInput, monthlyInvalid && formStyles.textInputError]}
         value={monthlyText}
         onChangeText={setMonthlyText}
         placeholder="0.00"
         placeholderTextColor={colors.inkFaint}
         keyboardType="decimal-pad"
+        accessibilityLabel="Monthly payment"
+        accessibilityHint={monthlyInvalid ? AMOUNT_ERROR : undefined}
         {...(NUMERIC_PAD_HAS_RETURN_KEY
           ? { ...NUMERIC_PAD_NEXT, onSubmitEditing: () => monthsRef.current?.focus() }
           : null)}
       />
+      {monthlyInvalid && <Text style={errorHint}>{AMOUNT_ERROR}</Text>}
 
       <Text style={formStyles.label}>Number of months</Text>
       <FormTextInput
         ref={monthsRef}
-        style={[
-          formStyles.textInput,
-          monthsText.trim() !== '' && !monthsValid && formStyles.textInputError,
-        ]}
+        style={[formStyles.textInput, monthsInvalid && formStyles.textInputError]}
         value={monthsText}
         onChangeText={setMonthsText}
         placeholder="e.g. 12"
         placeholderTextColor={colors.inkFaint}
         keyboardType="number-pad"
+        accessibilityLabel="Number of months"
+        accessibilityHint={monthsInvalid ? MONTHS_ERROR : undefined}
         {...(NUMERIC_PAD_HAS_RETURN_KEY
           ? { ...NUMERIC_PAD_NEXT, onSubmitEditing: () => dayDueRef.current?.focus() }
           : null)}
       />
+      {monthsInvalid && <Text style={errorHint}>{MONTHS_ERROR}</Text>}
 
       {total !== null && (
         <Text style={belowPaid ? errorHint : hint}>
@@ -126,7 +132,10 @@ export function InstallmentForm({ buckets, initial, amountPaid = 0, onSubmit }: 
         value={dayDueText}
         onChangeText={setDayDueText}
         keyboardType="number-pad"
+        accessibilityLabel="Day of month (1 to 31)"
+        accessibilityHint={dayValid ? undefined : DAY_ERROR}
       />
+      {!dayValid && <Text style={errorHint}>{DAY_ERROR}</Text>}
 
       <Text style={formStyles.label}>From bucket</Text>
       <ChipRow
