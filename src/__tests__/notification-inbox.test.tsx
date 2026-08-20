@@ -153,6 +153,19 @@ afterEach(async () => {
 });
 
 /**
+ * Taps without `fireEvent`, which awaits an `act` scope of its own — nesting
+ * that inside an outer `act` leaves both scopes open at once, which is what
+ * React means by "overlapping act() calls". `Pressable` puts an `onClick` on
+ * its host node that runs the same `onPress` and honours `disabled`, so two of
+ * these land in one tick the way a real double tap does.
+ */
+function pressInTick(testID: string) {
+  const press = screen.getByTestId(testID).props.onClick as (() => void) | undefined;
+  if (!press) throw new Error(`no onClick on ${testID}`);
+  press();
+}
+
+/**
  * The edit sheet is bottom-anchored inside a `Modal`, and until round 4 it had
  * no keyboard avoidance of any kind — the note field sat under the IME and the
  * user typed blind. It gets the same treatment as auto-log's sheets: a
@@ -230,11 +243,11 @@ describe('notification inbox edit sheet', () => {
     await render(<NotificationInboxScreen />);
     await waitFor(() => expect(screen.getByTestId(`confirm-${id}`)).toBeTruthy());
 
-    // One act scope, so both presses land before React re-renders with the
+    // One act scope, so both taps land before React re-renders with the
     // button disabled — a same-tick double tap, not two separate taps.
     await act(async () => {
-      fireEvent.press(screen.getByTestId(`confirm-${id}`));
-      fireEvent.press(screen.getByTestId(`confirm-${id}`));
+      pressInTick(`confirm-${id}`);
+      pressInTick(`confirm-${id}`);
     });
 
     await waitFor(async () => {
@@ -262,7 +275,7 @@ describe('notification inbox edit sheet', () => {
     await openEditSheet();
     await fireEvent.changeText(screen.getByTestId('edit-note'), 'Chickenjoy');
     await act(async () => {
-      fireEvent.press(screen.getByTestId('submit'));
+      pressInTick('submit');
     });
 
     // Cancel: still the sheet, still what was typed into it.

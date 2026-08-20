@@ -168,6 +168,19 @@ function anchorPaddingBottom(viewportTestID: string): number {
   return StyleSheet.flatten(sheetAnchor(viewportTestID).props.style).paddingBottom;
 }
 
+/**
+ * Taps without `fireEvent`, which awaits an `act` scope of its own — nesting
+ * that inside an outer `act` leaves both scopes open at once, which is what
+ * React means by "overlapping act() calls". `Pressable` puts an `onClick` on
+ * its host node that runs the same `onPress` and honours `disabled`, so two of
+ * these land in one tick the way a real double tap does.
+ */
+function pressInTick(testID: string) {
+  const press = screen.getByTestId(testID).props.onClick as (() => void) | undefined;
+  if (!press) throw new Error(`no onClick on ${testID}`);
+  press();
+}
+
 const realPlatform = Platform.OS;
 function setPlatform(os: typeof Platform.OS) {
   Object.defineProperty(Platform, 'OS', { value: os, configurable: true, writable: true });
@@ -477,11 +490,11 @@ describe('auto-log source sheet save', () => {
     await fireEvent.changeText(screen.getByTestId('source-package'), 'com.bpi.app');
     await fireEvent.press(screen.getByText('Cash'));
 
-    // One act scope, so both presses land before React re-renders with the
+    // One act scope, so both taps land before React re-renders with the
     // button disabled — a same-tick double tap, not two separate taps.
     await act(async () => {
-      fireEvent.press(screen.getByTestId('submit'));
-      fireEvent.press(screen.getByTestId('submit'));
+      pressInTick('submit');
+      pressInTick('submit');
     });
 
     await waitFor(async () => {
@@ -514,8 +527,8 @@ describe('auto-log rule sheet save', () => {
     await fireEvent.press(screen.getByText('Food'));
 
     await act(async () => {
-      fireEvent.press(screen.getByTestId('submit'));
-      fireEvent.press(screen.getByTestId('submit'));
+      pressInTick('submit');
+      pressInTick('submit');
     });
 
     await waitFor(async () => {
