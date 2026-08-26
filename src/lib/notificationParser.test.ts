@@ -1,12 +1,14 @@
-import { parseNotification } from './notificationParser';
+import { findAmountCandidates, parseNotification } from './notificationParser';
 
 describe('parseNotification', () => {
   it('parses a GCash send as high-confidence expense', () => {
     const r = parseNotification('You have sent PHP 150.00 to JOLLIBEE MAKATI via GCash.');
     expect(r).toEqual({
       amountCentavos: 15000,
+      amountCandidates: [15000],
       merchant: 'JOLLIBEE MAKATI',
       direction: 'expense',
+      promotional: false,
       confidence: 'high',
     });
   });
@@ -127,6 +129,96 @@ describe('parseNotification', () => {
     );
     expect(r.amountCentavos).toBe(1533700);
     expect(r.direction).toBe('income');
+    expect(r.confidence).toBe('high');
+  });
+});
+
+describe('findAmountCandidates', () => {
+  it('returns every currency-marked amount in source order as centavos', () => {
+    expect(
+      findAmountCandidates('Spend PHP 500 and get ₱100.50 cashback, up to Php 1,000.'),
+    ).toEqual([50000, 10050, 100000]);
+  });
+
+  it('returns an empty list when nothing is currency-marked', () => {
+    expect(findAmountCandidates('Your OTP is 123456. Ref 9988')).toEqual([]);
+  });
+
+  it('sanitizes HTML the same way parseNotification does', () => {
+    expect(findAmountCandidates('You paid &#8369;1,234.56 at <b>M&amp;M</b>.')).toEqual([123456]);
+  });
+
+  it('agrees with parseNotification: the first candidate is the parsed amount', () => {
+    const text = 'Get ₱50 off when you spend PHP 1,000 at partner stores.';
+    const r = parseNotification(text);
+    expect(r.amountCandidates).toEqual(findAmountCandidates(text));
+    expect(r.amountCentavos).toBe(r.amountCandidates[0]);
+  });
+});
+
+describe('promotional heuristic', () => {
+  // Real GCash promo blasts — every one of these carries a peso amount the old
+  // regex happily turned into a transaction.
+  it.each([
+    ['GCash: Get up to ₱500 cashback when you pay bills this weekend!'],
+    ['Spend ₱1,000 at partner stores and win ₱10,000 in GCash credits!'],
+    ['Enjoy 20% off your next GrabFood order — vouchers worth ₱150. Claim yours now!'],
+    ['Load promos as low as PHP 50! Buy now, promo expires Aug 31.'],
+    ['Your ₱200 discount voucher is waiting. Claim it in the GCash app.'],
+  ])('flags promotional blast and discards it: %s', (text) => {
+    const r = parseNotification(text);
+    expect(r.promotional).toBe(true);
+    expect(r.confidence).toBe('none');
+    // The amount is still surfaced — the LLM gets it as a candidate and may
+    // overrule the heuristic.
+    expect(r.amountCandidates.length).toBeGreaterThan(0);
+    expect(r.amountCentavos).toBe(r.amountCandidates[0]);
+  });
+
+  // Real transaction notifications must never trip the heuristic.
+  it.each([
+    ['You have sent PHP 150.00 to JOLLIBEE MAKATI via GCash. Ref. No. 1234567890'],
+    ['You have received PHP 500.00 from JUAN DELA CRUZ. Your new balance is PHP 1,200.00.'],
+    ['Your GCash account was debited PHP 1,234.56 for MERALCO bill payment.'],
+    ['Your card was charged ₱1,234.56 at SM SUPERMALLS on 07/10.'],
+  ])('does not flag a real transaction: %s', (text) => {
+    const r = parseNotification(text);
+    expect(r.promotional).toBe(false);
+    expect(r.confidence).toBe('high');
+  });
+
+  it('does not fire on "budget", "target" or "spent" (substring safety)', () => {
+    const r = parseNotification('You spent PHP 100.00 on your budget target at STORE.');
+    expect(r.promotional).toBe(false);
+    expect(r.direction).toBe('expense');
+  });
+
+  // The heuristic's dangerous edge: a real receipt whose footer sells something.
+  // Discarding these loses money the user actually spent, with no inbox row left
+  // to recover it from — so a verb that PRECEDES the promo wording keeps the
+  // notification alive, at 'medium' (inbox) rather than 'high' (auto-commit).
+  it.each([
+    ['You paid PHP 286.50 to OSAVE. Get your e-receipt in the app.'],
+    ['Your card was charged PHP 1,234.56 at SM SUPERMALLS. Card expires 09/26.'],
+    ['You have sent PHP 150.00 to JOLLIBEE. Enjoy 20% off your next order!'],
+  ])('queues a real transaction with a promo footer instead of discarding: %s', (text) => {
+    const r = parseNotification(text);
+    expect(r.promotional).toBe(true);
+    expect(r.confidence).toBe('medium');
+    expect(r.amountCentavos).not.toBeNull();
+  });
+
+  it('still discards a blast whose pitch leads the verb', () => {
+    // "Get" at index 7 beats "pay" at index 34 — earliest-wins says marketing.
+    const r = parseNotification('GCash: Get up to PHP 500 cashback when you pay bills!');
+    expect(r.confidence).toBe('none');
+  });
+
+  it('leaves the BPI rewards footer alone', () => {
+    const r = parseNotification(
+      'Pay To Atome Amount PHP 4,986.78 Notes Keep using the BPI app to Pay via QR and earn BPI Rewards Points for every transaction worth at least Php 400.',
+    );
+    expect(r.promotional).toBe(false);
     expect(r.confidence).toBe('high');
   });
 });

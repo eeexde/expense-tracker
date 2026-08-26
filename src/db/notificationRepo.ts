@@ -141,11 +141,22 @@ export interface IngestSummary {
   skipped: number;
 }
 
-/** Optional LLM fallback; called only for medium-confidence items. */
+/**
+ * The on-device model, when one is available. Called for EVERY item that has at
+ * least one candidate amount — not just ambiguous ones — because its first job
+ * is deciding whether the notification is a transaction at all. Given the
+ * candidate list it picks one by index; it can never supply an amount of its
+ * own. Null means "couldn't help": the caller falls back to the rules.
+ */
 export type LlmClassifier = (
   text: string,
-  amountCentavos: number,
-) => Promise<{ direction: 'expense' | 'income'; merchant: string | null } | null>;
+  candidates: number[],
+) => Promise<{
+  isTransaction: boolean;
+  direction: 'expense' | 'income';
+  merchant: string | null;
+  amountCentavos: number;
+} | null>;
 
 /**
  * Sources for a package: a keyword source claims the notification only when
@@ -183,6 +194,26 @@ function localDateOf(iso: string): string {
   return `${y}-${m}-${day}`;
 }
 
+/**
+ * Ceiling on how long ONE ingest pass may spend inside the model, across all
+ * items. Not a per-item timeout — llmParser already has one of those, and it is
+ * the wrong tool here for two reasons:
+ *
+ * 1. Ingest is serial (`await` inside the loop below), so N items cost N
+ *    timeouts. A week-away drain can be hundreds of items; at 5s each that is a
+ *    sync that never visibly finishes and a phone that gets hot doing it.
+ * 2. The per-item timeout ABANDONS the inference rather than cancelling it (the
+ *    native call keeps running — see llmController.classify). On a device slow
+ *    enough to time out once, every later item queues behind the orphan and
+ *    times out too, so the worst case is also the common case.
+ *
+ * Once the budget is gone the remaining items take the rules path, exactly as
+ * they would on a device with no model at all. 15s is chosen to cover a typical
+ * foreground drain of a handful of notifications outright, while capping the
+ * pathological backlog at something a user would describe as "a moment".
+ */
+const LLM_BUDGET_MS = 15_000;
+
 export async function ingestCaptured(
   db: Db,
   captured: CapturedNotification[],
@@ -190,6 +221,10 @@ export async function ingestCaptured(
   llmClassify?: LlmClassifier,
 ): Promise<IngestSummary> {
   const summary: IngestSummary = { committed: 0, queued: 0, discarded: 0, skipped: 0 };
+  // Wall clock already spent on inference in THIS pass. Monotonic clock, so a
+  // timezone change or an NTP step mid-drain cannot make the budget go
+  // backwards (or, worse, jump past it on the first item).
+  let llmSpentMs = 0;
   const allSources: NotificationSource[] = await db
     .select()
     .from(notificationSources)
@@ -224,6 +259,54 @@ export async function ingestCaptured(
       postedAt: item.postedAt,
     };
 
+    // The model, when present, is the authority — it runs for every item with a
+    // candidate amount, including ones the rules call high confidence. Those are
+    // precisely the dangerous case: "Get up to PHP 500 cashback when you pay
+    // bills" reads to the regex as an amount plus an expense verb, and used to
+    // auto-commit as a PHP 500 expense the user never made. Best-effort: a
+    // native crash, a timeout, or an exhausted LLM_BUDGET_MS leaves `verdict`
+    // null and the rules decide.
+    let verdict: Awaited<ReturnType<LlmClassifier>> = null;
+    if (llmClassify && parsed.amountCandidates.length > 0 && llmSpentMs < LLM_BUDGET_MS) {
+      const startedAt = performance.now();
+      try {
+        verdict = await llmClassify(item.text, parsed.amountCandidates);
+      } catch {
+        verdict = null;
+      } finally {
+        llmSpentMs += performance.now() - startedAt;
+      }
+    }
+
+    if (verdict && !verdict.isTransaction) {
+      // Not money moving. Discarded outright rather than queued: promos arrive
+      // in bulk and an inbox full of them is worse than the bogus row. The audit
+      // row still records what was dropped, and dedups a repost of it.
+      await db.insert(pendingNotifications).values({ ...base, status: 'discarded' });
+      summary.discarded += 1;
+      continue;
+    }
+
+    if (verdict) {
+      // The amount is one of OUR candidates (the model only sent back an index),
+      // so it is a figure that literally appears in the notification text.
+      // Merchant still prefers the regex capture: it comes from the text
+      // verbatim, while the model's is a paraphrase.
+      const mergedRow = {
+        ...base,
+        parsedAmount: verdict.amountCentavos,
+        parsedType: verdict.direction,
+        parsedMerchant: base.parsedMerchant ?? verdict.merchant,
+      };
+      await insertParsedTransaction(db, source, mergedRow, rules);
+      await db.insert(pendingNotifications).values({ ...mergedRow, status: 'committed' });
+      summary.committed += 1;
+      continue;
+    }
+
+    // Rules-only path: no model on this device, or it declined to answer. The
+    // promotional heuristic in parseNotification is what stands in for the
+    // model's isTransaction judgement here (confidence 'none').
     if (parsed.confidence === 'none') {
       await db.insert(pendingNotifications).values({ ...base, status: 'discarded' });
       summary.discarded += 1;
@@ -236,29 +319,8 @@ export async function ingestCaptured(
       await db.insert(pendingNotifications).values({ ...base, status: 'committed' });
       summary.committed += 1;
     } else {
-      let upgraded = false;
-      if (llmClassify) {
-        try {
-          const result = await llmClassify(item.text, parsed.amountCentavos!);
-          if (result) {
-            const mergedRow = {
-              ...base,
-              parsedType: result.direction,
-              parsedMerchant: base.parsedMerchant ?? result.merchant,
-            };
-            await insertParsedTransaction(db, source, mergedRow, rules);
-            await db.insert(pendingNotifications).values({ ...mergedRow, status: 'committed' });
-            summary.committed += 1;
-            upgraded = true;
-          }
-        } catch {
-          // LLM fallback is best-effort; fall through to the pending queue.
-        }
-      }
-      if (!upgraded) {
-        await db.insert(pendingNotifications).values({ ...base, status: 'pending' });
-        summary.queued += 1;
-      }
+      await db.insert(pendingNotifications).values({ ...base, status: 'pending' });
+      summary.queued += 1;
     }
   }
   return summary;

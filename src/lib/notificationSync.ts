@@ -41,8 +41,12 @@ export async function syncNotifications(db: AppDb): Promise<SyncSummary | null> 
     // CapturedEntry is kept structurally identical to CapturedNotification.
     const captured = drainBuffer();
     const nowIso = new Date().toISOString();
+    // `candidates` is every currency-marked amount ingestCaptured found in the
+    // text; the model picks one by index and also rules on whether this is a
+    // transaction at all. Undefined when AI is off/unavailable — ingest then
+    // falls back to the rules parser.
     const llmClassify = (await llmEnabled(db))
-      ? (text: string, amt: number) => classify(db, text, amt)
+      ? (text: string, candidates: number[]) => classify(db, text, candidates)
       : undefined;
     const ingest = await ingestCaptured(db, captured, nowIso, llmClassify);
     const expiry = await expirePending(db, nowIso);
@@ -59,7 +63,7 @@ export function subscribeLiveCapture(db: AppDb, onChange: () => void): () => voi
   const sub = addCapturedListener((entry: CapturedEntry) => {
     enqueue(async () => {
       const llmClassify = (await llmEnabled(db))
-        ? (text: string, amt: number) => classify(db, text, amt)
+        ? (text: string, candidates: number[]) => classify(db, text, candidates)
         : undefined;
       return ingestCaptured(db, [entry], new Date().toISOString(), llmClassify);
     })

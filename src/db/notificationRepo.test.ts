@@ -230,7 +230,12 @@ describe('ingestCaptured', () => {
   });
 });
 
-describe('LLM fallback on medium confidence', () => {
+/**
+ * The LLM is the AUTHORITY on whether a notification is a transaction at all —
+ * the rules parser cannot tell "Spend ₱1,000, get ₱100 back" from a receipt, so
+ * every item that carries a currency-marked amount goes past the model first.
+ */
+describe('LLM as transaction authority', () => {
   const NOW = '2026-07-13T08:00:00.000Z';
   const mediumEntry = {
     packageName: 'com.globe.gcash.android',
@@ -239,23 +244,82 @@ describe('LLM fallback on medium confidence', () => {
     postedAt: NOW,
     key: 'llm1',
   };
+  // Reads as a high-confidence expense to the regex ("pay" + an amount) and
+  // dodges the promotional word list — exactly the bogus auto-commit only the
+  // model can stop.
+  const disguisedPromo = {
+    ...mediumEntry,
+    key: 'llm-promo',
+    text: 'Reminder: you can pay your Meralco bill of PHP 1,234.56 right in the GCash app.',
+  };
+  const txn = (opts: Partial<{ direction: string; merchant: string | null; amount: number }> = {}) =>
+    jest.fn().mockResolvedValue({
+      isTransaction: true,
+      direction: opts.direction ?? 'income',
+      merchant: opts.merchant ?? 'JOLLIBEE',
+      amountCentavos: opts.amount ?? 9900,
+    });
 
-  it('classifier direction upgrades a medium item to committed', async () => {
+  it('is handed the full candidate list, not a single amount', async () => {
     const db = createTestDb();
     await setup(db);
-    const classify = jest.fn().mockResolvedValue({ direction: 'income', merchant: 'JOLLIBEE' });
-    const summary = await ingestCaptured(db, [mediumEntry], NOW, classify);
-    expect(classify).toHaveBeenCalledWith(mediumEntry.text, 9900);
-    expect(summary.committed).toBe(1);
-    expect(summary.queued).toBe(0);
-    const [txn] = await db.select().from(transactions);
-    expect(txn.type).toBe('income');
-    expect(txn.note).toBe('JOLLIBEE');
-    const [row] = await db.select().from(pendingNotifications);
-    expect(row.status).toBe('committed');
+    const classify = txn();
+    await ingestCaptured(db, [mediumEntry], NOW, classify);
+    expect(classify).toHaveBeenCalledWith(mediumEntry.text, [9900]);
   });
 
-  it('classifier null keeps the item in the inbox', async () => {
+  it('isTransaction:false discards a promo the regex would have auto-committed', async () => {
+    const db = createTestDb();
+    await setup(db);
+    const classify = jest.fn().mockResolvedValue({
+      isTransaction: false,
+      direction: 'expense',
+      merchant: null,
+      amountCentavos: 0,
+    });
+    const summary = await ingestCaptured(db, [disguisedPromo], NOW, classify);
+    expect(classify).toHaveBeenCalledWith(disguisedPromo.text, [123456]);
+    expect(summary.discarded).toBe(1);
+    expect(summary.committed).toBe(0);
+    expect(summary.queued).toBe(0);
+    // No money invented, and nothing left in the inbox for the user to triage.
+    expect(await db.select().from(transactions)).toHaveLength(0);
+    const [row] = await db.select().from(pendingNotifications);
+    expect(row.status).toBe('discarded');
+  });
+
+  it('commits with the amount the model picked, not the first regex hit', async () => {
+    const db = createTestDb();
+    await setup(db);
+    // "PHP 50.00 fee ... PHP 1,200.00 sent": the real amount is the second one.
+    const entry = {
+      ...mediumEntry,
+      key: 'llm-pick',
+      text: 'Service fee PHP 50.00. Amount PHP 1,200.00 sent to ALING NENA.',
+    };
+    const classify = txn({ direction: 'expense', merchant: null, amount: 120000 });
+    const summary = await ingestCaptured(db, [entry], NOW, classify);
+    expect(classify).toHaveBeenCalledWith(entry.text, [5000, 120000]);
+    expect(summary.committed).toBe(1);
+    const [row] = await db.select().from(transactions);
+    expect(row.amount).toBe(120000);
+    expect(row.type).toBe('expense');
+  });
+
+  it('upgrades a medium item to committed', async () => {
+    const db = createTestDb();
+    await setup(db);
+    const summary = await ingestCaptured(db, [mediumEntry], NOW, txn());
+    expect(summary.committed).toBe(1);
+    expect(summary.queued).toBe(0);
+    const [row] = await db.select().from(transactions);
+    expect(row.type).toBe('income');
+    expect(row.note).toBe('JOLLIBEE');
+    const [pending] = await db.select().from(pendingNotifications);
+    expect(pending.status).toBe('committed');
+  });
+
+  it('classifier null falls back to the rules path: medium queues', async () => {
     const db = createTestDb();
     await setup(db);
     const classify = jest.fn().mockResolvedValue(null);
@@ -264,23 +328,36 @@ describe('LLM fallback on medium confidence', () => {
     expect(await db.select().from(transactions)).toHaveLength(0);
   });
 
-  it('classifier is not called for high or no-amount items', async () => {
+  it('classifier null falls back to the rules path: high still auto-commits', async () => {
+    const db = createTestDb();
+    await setup(db);
+    const classify = jest.fn().mockResolvedValue(null);
+    const summary = await ingestCaptured(
+      db,
+      [{ ...mediumEntry, key: 'llm-high', text: 'You have sent PHP 10.00 to X.' }],
+      NOW,
+      classify,
+    );
+    expect(summary.committed).toBe(1);
+    const [row] = await db.select().from(transactions);
+    expect(row.amount).toBe(1000);
+  });
+
+  it('classifier is not called when the text has no candidate amount', async () => {
     const db = createTestDb();
     await setup(db);
     const classify = jest.fn();
-    await ingestCaptured(
+    const summary = await ingestCaptured(
       db,
-      [
-        { ...mediumEntry, key: 'llm2', text: 'You have sent PHP 10.00 to X.' },
-        { ...mediumEntry, key: 'llm3', text: 'Promo! 20% off this weekend' },
-      ],
+      [{ ...mediumEntry, key: 'llm3', text: 'Promo! 20% off this weekend' }],
       NOW,
       classify,
     );
     expect(classify).not.toHaveBeenCalled();
+    expect(summary.discarded).toBe(1);
   });
 
-  it('classifier throwing does not break ingest — item queues', async () => {
+  it('classifier throwing does not break ingest — item falls back to the rules', async () => {
     const db = createTestDb();
     await setup(db);
     const classify = jest.fn().mockRejectedValue(new Error('native crash'));
@@ -291,12 +368,109 @@ describe('LLM fallback on medium confidence', () => {
   it('uses the LLM merchant only when regex found none', async () => {
     const db = createTestDb();
     await setup(db);
-    // regex finds no merchant in this text but does find amount → medium
-    const classify = jest.fn().mockResolvedValue({ direction: 'expense', merchant: 'LLM STORE' });
-    await ingestCaptured(db, [{ ...mediumEntry, key: 'llm4', text: 'Alert: PHP 42.00 processed' }], NOW, classify);
-    const [txn] = await db.select().from(transactions);
-    expect(txn.type).toBe('expense');
-    expect(txn.note).toBe('LLM STORE');
+    const classify = txn({ direction: 'expense', merchant: 'LLM STORE', amount: 4200 });
+    await ingestCaptured(
+      db,
+      [{ ...mediumEntry, key: 'llm4', text: 'Alert: PHP 42.00 processed' }],
+      NOW,
+      classify,
+    );
+    const [row] = await db.select().from(transactions);
+    expect(row.type).toBe('expense');
+    expect(row.note).toBe('LLM STORE');
+  });
+
+  /**
+   * No model (iOS, not downloaded, or every inference timing out) is the whole
+   * reason the promotional heuristic still exists.
+   */
+  it('with no classifier at all, a promo blast is discarded by the heuristic', async () => {
+    const db = createTestDb();
+    await setup(db);
+    const summary = await ingestCaptured(
+      db,
+      [
+        {
+          ...mediumEntry,
+          key: 'llm-noai',
+          text: 'GCash: Get up to PHP 500 cashback when you pay your bills this weekend!',
+        },
+      ],
+      NOW,
+    );
+    expect(summary.discarded).toBe(1);
+    expect(summary.committed).toBe(0);
+    expect(await db.select().from(transactions)).toHaveLength(0);
+  });
+});
+
+/**
+ * Ingest is serial, so the model's per-item timeout multiplies by the number of
+ * items: a drain after a week away can be hundreds of notifications, and at 5s
+ * apiece that is a sync that never visibly ends. LLM_BUDGET_MS caps the whole
+ * pass; whatever is left over takes the rules path, exactly as it would on a
+ * device with no model at all.
+ *
+ * Wall clock is faked by driving `performance.now()` from the classifier itself
+ * — 6s of "inference" per call — so the assertion is about the budget arithmetic
+ * rather than about real elapsed time.
+ */
+describe('LLM time budget', () => {
+  const NOW = '2026-07-13T08:00:00.000Z';
+  // High confidence to the rules ("charged" + an amount), so anything the model
+  // does not get to still auto-commits — which is what makes the fallback
+  // visible in the summary.
+  const entries = [1, 2, 3, 4, 5].map((n) => ({
+    packageName: 'com.globe.gcash.android',
+    title: null,
+    text: `Your GCash account was charged PHP ${n}00.00 at STORE ${n}.`,
+    postedAt: NOW,
+    key: `budget-${n}`,
+  }));
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('stops consulting the model once the pass budget is spent', async () => {
+    const db = createTestDb();
+    await setup(db);
+
+    let clock = 0;
+    jest.spyOn(performance, 'now').mockImplementation(() => clock);
+    // Every call bills 6s. Budget is 15s, so calls start at 0ms, 6000ms and
+    // 12000ms of spend; the fourth item sees 18000 and is never offered.
+    const classify = jest.fn(async () => {
+      clock += 6_000;
+      return { isTransaction: false as const, direction: 'expense' as const, merchant: null, amountCentavos: 0 };
+    });
+
+    const summary = await ingestCaptured(db, entries, NOW, classify);
+
+    expect(classify).toHaveBeenCalledTimes(3);
+    // The three the model saw were discarded on its say-so; the two it never
+    // saw went down the rules path and auto-committed.
+    expect(summary.discarded).toBe(3);
+    expect(summary.committed).toBe(2);
+  });
+
+  it('bills a thrown classifier against the budget too', async () => {
+    const db = createTestDb();
+    await setup(db);
+
+    let clock = 0;
+    jest.spyOn(performance, 'now').mockImplementation(() => clock);
+    // A native crash burns the same wall clock as an answer. Billing only the
+    // successes would let a device that fails slowly retry forever.
+    const classify = jest.fn(async () => {
+      clock += 8_000;
+      throw new Error('native crash');
+    });
+
+    const summary = await ingestCaptured(db, entries, NOW, classify);
+
+    expect(classify).toHaveBeenCalledTimes(2);
+    expect(summary.committed).toBe(5);
   });
 });
 

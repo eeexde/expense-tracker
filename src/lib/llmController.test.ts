@@ -187,11 +187,19 @@ describe('download failure reporting', () => {
  * whole ~1GB.
  */
 describe('download progress broadcast', () => {
-  type FakeInstance = { configure: jest.Mock; generate: jest.Mock; delete: jest.Mock };
+  type FakeInstance = {
+    configure: jest.Mock;
+    generate: jest.Mock;
+    delete: jest.Mock;
+    interrupt: jest.Mock;
+    setTokenCallback: jest.Mock;
+  };
   const fakeInstance = (): FakeInstance => ({
     configure: jest.fn(),
     generate: jest.fn(),
     delete: jest.fn(),
+    interrupt: jest.fn(),
+    setTokenCallback: jest.fn(),
   });
 
   it('feeds progress to a caller that joins a download already in flight', async () => {
@@ -248,11 +256,21 @@ describe('download progress broadcast', () => {
  * guard exists to prevent.
  */
 describe('model lifecycle safety', () => {
-  type FakeInstance = { configure: jest.Mock; generate: jest.Mock; delete: jest.Mock };
+  type FakeInstance = {
+    configure: jest.Mock;
+    generate: jest.Mock;
+    delete: jest.Mock;
+    interrupt: jest.Mock;
+    setTokenCallback: jest.Mock;
+  };
   const newInstance = (): FakeInstance => ({
     configure: jest.fn(),
-    generate: jest.fn(async () => '{"direction":"expense","merchant":null}'),
+    generate: jest.fn(
+      async () => '{"isTransaction":true,"amountIndex":0,"direction":"expense","merchant":null}',
+    ),
     delete: jest.fn(),
+    interrupt: jest.fn(),
+    setTokenCallback: jest.fn(),
   });
 
   /** Resolvers for the loads currently parked inside `fromModelName`, oldest first. */
@@ -356,7 +374,7 @@ describe('model lifecycle safety', () => {
     pendingLoads[0](loaded);
     await load;
 
-    const pendingClassify = classify(db, 'GCash: sent P100.00 to Aling Nena', 10000);
+    const pendingClassify = classify(db, 'GCash: sent P100.00 to Aling Nena', [10000]);
     await flush();
     expect(loaded.generate).toHaveBeenCalledTimes(1);
 
@@ -366,10 +384,12 @@ describe('model lifecycle safety', () => {
     expect(loaded.delete).not.toHaveBeenCalled();
     expect(deleteResources).not.toHaveBeenCalled();
     // A notification arriving mid-teardown gets no handle at all.
-    await expect(classify(db, 'BPI: P50.00 debited', 5000)).resolves.toBeNull();
+    await expect(classify(db, 'BPI: P50.00 debited', [5000])).resolves.toBeNull();
     expect(loaded.generate).toHaveBeenCalledTimes(1);
 
-    finishGenerate!('{"direction":"expense","merchant":"Aling Nena"}');
+    finishGenerate!(
+      '{"isTransaction":true,"amountIndex":0,"direction":"expense","merchant":"Aling Nena"}',
+    );
     await remove;
 
     expect(loaded.delete).toHaveBeenCalledTimes(1);
@@ -377,6 +397,8 @@ describe('model lifecycle safety', () => {
     // The inference ran to completion against a handle that was still valid, so
     // its answer stands — the teardown waited rather than killing it.
     await expect(pendingClassify).resolves.toEqual({
+      isTransaction: true,
+      amountCentavos: 10000,
       direction: 'expense',
       merchant: 'Aling Nena',
     });
@@ -403,7 +425,7 @@ describe('model lifecycle safety', () => {
     pendingLoads[0](loaded);
     await load;
 
-    const pendingClassify = classify(db, 'GCash: sent P100.00 to Aling Nena', 10000);
+    const pendingClassify = classify(db, 'GCash: sent P100.00 to Aling Nena', [10000]);
     await flush();
 
     unload();
@@ -411,7 +433,9 @@ describe('model lifecycle safety', () => {
     // Freeing now would pull native memory out from under generate().
     expect(loaded.delete).not.toHaveBeenCalled();
 
-    finishGenerate!('{"direction":"expense","merchant":"Aling Nena"}');
+    finishGenerate!(
+      '{"isTransaction":true,"amountIndex":0,"direction":"expense","merchant":"Aling Nena"}',
+    );
     await expect(pendingClassify).resolves.toBeNull();
     await flush();
     expect(loaded.delete).toHaveBeenCalledTimes(1);
@@ -469,7 +493,7 @@ describe('model lifecycle safety', () => {
     await flush();
     pendingLoads[0](a);
     await first;
-    const pendingClassify = classify(db, 'GCash: sent P100.00 to Aling Nena', 10000);
+    const pendingClassify = classify(db, 'GCash: sent P100.00 to Aling Nena', [10000]);
     await flush();
     expect(a.generate).toHaveBeenCalledTimes(1);
 
@@ -492,7 +516,7 @@ describe('model lifecycle safety', () => {
     expect(b.delete).toHaveBeenCalledTimes(1);
 
     // A's answer lands eventually; it describes a handle nothing holds now.
-    finishA!('{"direction":"expense","merchant":"Aling Nena"}');
+    finishA!('{"isTransaction":true,"amountIndex":0,"direction":"expense","merchant":"Aling Nena"}');
     await expect(pendingClassify).resolves.toBeNull();
     await flush();
     expect(a.delete).toHaveBeenCalledTimes(1);
@@ -515,7 +539,7 @@ describe('model lifecycle safety', () => {
       await flush();
       pendingLoads[0](loaded);
       await load;
-      const abandoned = classify(db, 'GCash: sent P100.00 to Aling Nena', 10000);
+      const abandoned = classify(db, 'GCash: sent P100.00 to Aling Nena', [10000]);
       await flush();
       expect(loaded.generate).toHaveBeenCalledTimes(1);
 
@@ -560,7 +584,7 @@ describe('model lifecycle safety', () => {
    */
   it('a Delete tap during the cold load a classify is waiting on never reaches generate', async () => {
     settings.aiModelDownloaded = 'true';
-    const pendingClassify = classify(db, 'GCash: sent P100.00 to Aling Nena', 10000);
+    const pendingClassify = classify(db, 'GCash: sent P100.00 to Aling Nena', [10000]);
     await flush();
     expect(fromModelName).toHaveBeenCalledTimes(1);
 
@@ -575,6 +599,72 @@ describe('model lifecycle safety', () => {
     expect(loaded.generate).not.toHaveBeenCalled();
     expect(loaded.delete).toHaveBeenCalledTimes(1);
     expect(deleteResources).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * Interrupt is a request, not a guarantee — native may still be finishing when
+   * the next item arrives, and LLMController.forward THROWS ModelGenerating on a
+   * concurrent generate. The guard turns that exception path into a plain
+   * fallback, and proves the interrupt is actually issued on the way out.
+   */
+  it('a still-running inference makes the next classify bail instead of stacking a second generate', async () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+    try {
+      settings.aiModelDownloaded = 'true';
+      const loaded = newInstance();
+      loaded.generate.mockImplementation(() => new Promise<string>(() => {}));
+
+      const load = ensureLoaded(db);
+      await flush();
+      pendingLoads[0](loaded);
+      await load;
+
+      const abandoned = classify(db, 'GCash: sent P100.00 to Aling Nena', [10000]);
+      await flush();
+      expect(loaded.generate).toHaveBeenCalledTimes(1);
+
+      // The hard cap fires with no token ever seen: classify gives up and asks
+      // native to stop. `interrupt` returns at most one more token, so a real
+      // runtime settles here — this fake never does, which is the worst case.
+      await jest.advanceTimersByTimeAsync(12_000);
+      await expect(abandoned).resolves.toBeNull();
+      expect(loaded.interrupt).toHaveBeenCalledTimes(1);
+
+      // Next item in the same drain. It must NOT touch generate again.
+      await expect(classify(db, 'BPI: P50.00 debited', [5000])).resolves.toBeNull();
+      expect(loaded.generate).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  /**
+   * The other half of that guard: it keys off a hold that is still out, and a
+   * hold is released off the INFERENCE promise rather than in classify's
+   * `finally`. Back-to-back classifies in one drain must still both run, or the
+   * guard would silently disable the model for every item after the first.
+   */
+  it('back-to-back classifies both run when each inference completes', async () => {
+    settings.aiModelDownloaded = 'true';
+    const loaded = newInstance();
+    const load = ensureLoaded(db);
+    await flush();
+    pendingLoads[0](loaded);
+    await load;
+
+    await expect(classify(db, 'GCash: sent P100.00 to Aling Nena', [10000])).resolves.toEqual({
+      isTransaction: true,
+      direction: 'expense',
+      merchant: null,
+      amountCentavos: 10000,
+    });
+    await expect(classify(db, 'BPI: P50.00 debited', [5000])).resolves.toEqual({
+      isTransaction: true,
+      direction: 'expense',
+      merchant: null,
+      amountCentavos: 5000,
+    });
+    expect(loaded.generate).toHaveBeenCalledTimes(2);
   });
 
   it('a second Delete tap joins the running teardown', async () => {

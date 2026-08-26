@@ -298,12 +298,35 @@ function holdModel(instance: LLMModule): () => void {
 }
 
 /**
+ * Asks native to stop generating, swallowing the failure. `interrupt()` throws
+ * ModuleNotLoaded once the handle is gone, and every caller here is a teardown
+ * racing exactly that — a throw would abort the free and leak the instance for
+ * the session, which is the outcome the interrupt exists to prevent.
+ */
+function interruptQuietly(instance: LLMModule): void {
+  try {
+    instance.interrupt();
+  } catch {
+    // Already unloaded, or never generating. Nothing to stop either way.
+  }
+}
+
+/**
  * Waits for the given holders, but no longer than HOLDER_WAIT_MS. Resolves true
  * when every inference finished, false when the bound expired with one still
  * running.
+ *
+ * Interrupts first. Without it the wait is a bet on a native `generate()` that
+ * may run for tens of seconds (or, wedged, forever) finishing inside the bound,
+ * and losing that bet costs a leaked ~1GB handle — `.delete()` under a live
+ * generate is a use-after-free, so the free is skipped rather than risked. It
+ * also unblocks `.delete()` itself, which THROWS ModelGenerating if called while
+ * the model is generating. Interrupt returns at most one more token, so the
+ * holders settle promptly and the wait becomes a formality.
  */
-function waitForHolders(holders: Promise<void>[]): Promise<boolean> {
+function waitForHolders(instance: LLMModule | null, holders: Promise<void>[]): Promise<boolean> {
   if (holders.length === 0) return Promise.resolve(true);
+  if (instance) interruptQuietly(instance);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const bound = new Promise<boolean>((resolve) => {
     timer = setTimeout(() => resolve(false), HOLDER_WAIT_MS);
@@ -349,7 +372,7 @@ function freeInstance(): Promise<void> {
     instance.delete();
     return Promise.resolve();
   }
-  return waitForHolders(holders).then((finished) => {
+  return waitForHolders(instance, holders).then((finished) => {
     // Past the bound the native call is still reading this handle, and
     // `.delete()` under it is a use-after-free that takes the process down.
     // Abandoning the handle leaks it instead — one instance of native memory
@@ -422,14 +445,16 @@ export async function deleteModel(db: Db): Promise<void> {
     // or join while `deleteInFlight` is set, so no new work can appear behind it.
     await Promise.allSettled([pendingLoad, pendingDownload]);
     // The inferences holding whatever is resident now (the load joined above may
-    // have just produced it), waited out BEFORE the detach so an answer that
-    // lands in time still counts — the teardown waits rather than killing it.
-    // Scoped to this instance, so a stale hold from an earlier one cannot block
-    // it, and bounded, so a wedged native `generate()` cannot pin
-    // `deleteInFlight` — and with it every later load and inference — for the
-    // rest of the session.
+    // have just produced it), waited out BEFORE the detach. waitForHolders
+    // interrupts them first: the user asked for this model to go, so a
+    // notification still being classified loses its answer and takes the rules
+    // path — the alternative is a Delete button that appears to hang for as
+    // long as a decode takes. Scoped to this instance, so a stale hold from an
+    // earlier one cannot block it, and bounded, so a native `generate()` that
+    // ignores the interrupt cannot pin `deleteInFlight` — and with it every
+    // later load and inference — for the rest of the session.
     const resident = modelInstance;
-    const settled = await waitForHolders(resident ? [...(busyHolders.get(resident) ?? [])] : []);
+    const settled = await waitForHolders(resident, resident ? [...(busyHolders.get(resident) ?? [])] : []);
     const detached = detachInstance();
     state = 'absent';
     // Past the bound the native call still holds the handle; abandon it rather
@@ -457,10 +482,17 @@ export async function deleteModel(db: Db): Promise<void> {
   }
 }
 
+/**
+ * Classify one notification. `candidates` is the full list of currency-marked
+ * amounts found in the text (findAmountCandidates): the model picks one BY
+ * INDEX, and also says whether this is a transaction at all — see llmParser.
+ * Pure pass-through; every guard below is about the native handle, not the
+ * classification.
+ */
 export async function classify(
   db: Db,
   text: string,
-  amountCentavos: number,
+  candidates: number[],
 ): Promise<LlmClassification | null> {
   if (!llmSupported) return null;
   // ensureLoaded never downloads, so classify() can never surprise-download:
@@ -471,11 +503,19 @@ export async function classify(
   // here is a window in which deleteModel sees no holder, frees the handle, and
   // leaves `generate` reading freed native memory.
   if (!activeModule || deleteInFlight) return null;
+  // An inference is STILL RUNNING on this handle. Callers are serialized (the
+  // ingest chain awaits each classify), so this only ever means a previous item
+  // hit classifyWithLlm's 5s timeout and its interrupt has not landed yet —
+  // native may still emit one more token. LLMController.forward THROWS
+  // ModelGenerating on a second concurrent generate, so without this the next
+  // item's classify takes an exception path to reach the same null. Explicit is
+  // better than caught: the rules fallback here is a decision, not an error.
+  if ((busyHolders.get(activeModule)?.size ?? 0) > 0) return null;
   const startedAt = modelGeneration;
   const release = holdModel(activeModule);
-  // classifyWithLlm abandons the inference after its 5s timeout, but the NATIVE
-  // call keeps running against this handle — so the hold is released off the
-  // inference promise, not when classify() returns.
+  // classifyWithLlm interrupts at 5s, but native may still emit one more token
+  // before `generate` resolves — so the hold is released off the inference
+  // promise, not when classify() returns.
   const pending: { inference?: Promise<unknown> } = {};
   try {
     // `generate` is stateless — each call is a fresh one-shot completion, no
@@ -487,7 +527,21 @@ export async function classify(
         return inference;
       },
       text,
-      amountCentavos,
+      candidates,
+      {
+        // Timed out or stalled. Stop the native call rather than abandoning it:
+        // the hold is released off the inference, so an uninterrupted one keeps
+        // this handle busy for every later item in the drain and blocks the
+        // next teardown.
+        onCancel: () => interruptQuietly(activeModule),
+        // Liveness feed. Rebound per inference rather than wired at load, so a
+        // classify that has given up cannot keep resetting the clock of the one
+        // that follows it.
+        onTokens: (onToken) => {
+          activeModule.setTokenCallback({ tokenCallback: onToken });
+          return () => activeModule.setTokenCallback({ tokenCallback: () => {} });
+        },
+      },
     );
     // The handle we ran against was released while we were generating (deleted,
     // or freed on app background). The answer describes a model the user no
