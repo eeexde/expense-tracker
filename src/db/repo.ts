@@ -3,6 +3,7 @@ import {
   Bucket,
   buckets,
   installments,
+  Recurring,
   recurring,
   Transaction,
   transactions,
@@ -117,6 +118,15 @@ export async function listTransactions(
     .orderBy(desc(transactions.date), desc(transactions.id));
   if (filter.limit) query = query.limit(filter.limit);
   return query;
+}
+
+/**
+ * Rules still on the schedule, for the add-transaction form's "cover recurring"
+ * link. Paused/ended rules are excluded: linking to one would suppress nothing,
+ * since the poster only ever looks at active rules.
+ */
+export async function listActiveRecurring(db: Db): Promise<Recurring[]> {
+  return db.select().from(recurring).where(eq(recurring.active, true)).orderBy(recurring.name);
 }
 
 /**

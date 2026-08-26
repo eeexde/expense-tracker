@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { TransactionForm, TransactionFormValues } from '@/components/TransactionForm';
 import { useDb } from '@/db/DbProvider';
 import { useAppQuery } from '@/db/hooks';
-import { addExpense, addIncome, addTransfer } from '@/db/repo';
+import { addExpense, addIncome, addTransfer, listActiveRecurring } from '@/db/repo';
 import {
   assertLinkedInstallmentPayment,
   listOpenInstallments,
@@ -38,6 +38,7 @@ export default function AddTransactionScreen() {
   );
   const openUtang = useAppQuery((db) => listOpenUtang(db));
   const openInstallments = useAppQuery((db) => listOpenInstallments(db));
+  const activeRecurring = useAppQuery((db) => listActiveRecurring(db));
 
   const save = async (values: TransactionFormValues) => {
     const input = {
@@ -49,6 +50,9 @@ export default function AddTransactionScreen() {
       receiptPhotoUri: values.receiptPhotoUri,
       utangId: values.utangId,
       installmentId: values.installmentId,
+      // No assert/record pair like the other two links: a rule holds no balance,
+      // so the only effect is that runCatchUp sees this due already covered.
+      recurringId: values.recurringId,
     };
     const utangLink =
       values.kind !== 'transfer' && values.utangId !== undefined
@@ -100,6 +104,7 @@ export default function AddTransactionScreen() {
         categories={categories}
         openUtang={openUtang}
         openInstallments={openInstallments}
+        activeRecurring={activeRecurring}
         onSubmit={save}
         onScanReceipt={() => router.push('/scan-receipt')}
         initialKind={params.kind === 'income' ? 'income' : 'expense'}

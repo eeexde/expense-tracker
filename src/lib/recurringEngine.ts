@@ -83,6 +83,20 @@ function dayBefore(date: string): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * Would this rule post on exactly this date?
+ *
+ * Asked by the add-transaction form, to tell the user whether the expense they
+ * are logging will actually stand in for a scheduled posting: `postedDues`
+ * dedupes on `(recurringId, date)`, so only a date the rule itself would have
+ * chosen suppresses anything. Expressed as a one-day window over
+ * `dueDatesBetween` rather than as its own day-of-month check, so month-end
+ * clamping (a day-31 rule is due Feb 28) can never drift apart from the poster.
+ */
+export function isDueDate(rule: RecurrenceRule, date: string): boolean {
+  return dueDatesBetween(rule, dayBefore(date), date).includes(date);
+}
+
 /** Due dates this rule has already posted a transaction for, of the ones asked. */
 async function postedDues(db: Db, recurringId: number, dues: string[]): Promise<Set<string>> {
   if (dues.length === 0) return new Set();

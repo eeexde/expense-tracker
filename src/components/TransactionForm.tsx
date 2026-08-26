@@ -1,10 +1,11 @@
 import { useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Image } from 'expo-image';
-import { Bucket, Category } from '@/db/schema';
+import { Bucket, Category, Recurring } from '@/db/schema';
 import { InstallmentWithRemaining } from '@/db/installmentRepo';
 import { UtangWithRemaining } from '@/db/utangRepo';
 import { centavosToInput, formatPeso, parsePesoInput } from '@/lib/money';
+import { isDueDate } from '@/lib/recurringEngine';
 import { AmountInput } from './AmountInput';
 import {
   ChipRow,
@@ -32,6 +33,8 @@ export interface TransactionFormValues {
   utangId?: number;
   /** Installment plan this expense pays (advance payments welcome). */
   installmentId?: number;
+  /** Recurring rule this expense covers, standing in for its auto-post. */
+  recurringId?: number;
 }
 
 interface Props {
@@ -42,6 +45,8 @@ interface Props {
   openUtang?: UtangWithRemaining[];
   /** Open installment plans offered for (advance) payment linking. */
   openInstallments?: InstallmentWithRemaining[];
+  /** Active recurring rules offered for linking. Hidden when omitted or empty. */
+  activeRecurring?: Recurring[];
   /** Opens the receipt scanner (Task 11). Hidden when omitted. */
   onScanReceipt?: () => void;
   initialKind?: TxnKind;
@@ -78,6 +83,7 @@ export function TransactionForm({
   onSubmit,
   openUtang,
   openInstallments,
+  activeRecurring,
   onScanReceipt,
   initialKind = 'expense',
   initialAmountText,
@@ -103,6 +109,7 @@ export function TransactionForm({
   const [date, setDate] = useState(initialValues?.date ?? todayLocal());
   const [utangId, setUtangId] = useState<number | undefined>(undefined);
   const [installmentId, setInstallmentId] = useState<number | undefined>(undefined);
+  const [recurringId, setRecurringId] = useState<number | undefined>(undefined);
   const noteRef = useRef<TextInput>(null);
 
   const kindCategories = useMemo(
@@ -129,6 +136,12 @@ export function TransactionForm({
   const overpaysInstallment =
     linkedInstallment !== undefined && amount !== null && amount > linkedInstallment.remaining;
 
+  // Recurring rules have no type column and always post as expenses, so there
+  // is nothing for an income or a transfer to cover.
+  const linkableRecurring = kind === 'expense' ? activeRecurring ?? [] : [];
+  const linkedRecurring = linkableRecurring.find((r) => r.id === recurringId);
+  // No overpay check exists here on purpose: a rule carries no balance, so any
+  // amount is legal — the user's number simply replaces the rule's.
   const dateValid = DATE_RE.test(date);
   const valid =
     amount !== null &&
@@ -151,6 +164,7 @@ export function TransactionForm({
       receiptPhotoUri,
       utangId: linkedUtang?.id,
       installmentId: linkedInstallment?.id,
+      recurringId: linkedRecurring?.id,
     });
   });
 
@@ -171,6 +185,7 @@ export function TransactionForm({
               setCategoryId(undefined);
               setUtangId(undefined);
               setInstallmentId(undefined);
+              setRecurringId(undefined);
             }}
             disabled={lockKind && kind !== k}
             accessibilityRole="button"
@@ -245,6 +260,7 @@ export function TransactionForm({
             onSelect={(id) => {
               setUtangId(utangId === id ? undefined : id);
               setInstallmentId(undefined);
+              setRecurringId(undefined);
             }}
             testIDPrefix="utang"
           />
@@ -267,6 +283,7 @@ export function TransactionForm({
             onSelect={(id) => {
               setInstallmentId(installmentId === id ? undefined : id);
               setUtangId(undefined);
+              setRecurringId(undefined);
             }}
             testIDPrefix="installment"
           />
@@ -277,6 +294,37 @@ export function TransactionForm({
           )}
           {overpaysInstallment && (
             <Text style={styles.linkError}>Amount exceeds the remaining balance.</Text>
+          )}
+        </>
+      )}
+
+      {linkableRecurring.length > 0 && (
+        <>
+          <Text style={styles.label}>Cover recurring (optional)</Text>
+          <ChipRow
+            items={linkableRecurring.map((r) => ({
+              id: r.id,
+              label: `${r.name} · ${formatPeso(r.amount)}`,
+              icon: 'repeat',
+            }))}
+            selectedId={recurringId}
+            onSelect={(id) => {
+              setRecurringId(recurringId === id ? undefined : id);
+              setUtangId(undefined);
+              setInstallmentId(undefined);
+            }}
+            testIDPrefix="recurring"
+          />
+          {/* The engine dedupes on (recurringId, date), so this link only
+              replaces the scheduled posting when the date lands on a due.
+              Any other date is perfectly legal — the user gets told what will
+              happen rather than being blocked. */}
+          {linkedRecurring && dateValid && (
+            <Text style={styles.linkHint}>
+              {isDueDate(linkedRecurring, date)
+                ? 'The scheduled posting for this date will be skipped.'
+                : "This date isn't one of this rule's due dates, so the scheduled posting still happens."}
+            </Text>
           )}
         </>
       )}

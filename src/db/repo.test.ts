@@ -12,6 +12,7 @@ import {
   createBucket,
   deleteBucket,
   deleteTransaction,
+  listActiveRecurring,
   listTransactions,
   totalMoney,
   updateBucket,
@@ -342,5 +343,48 @@ describe('bucket balances', () => {
     counter.take();
     await allBucketBalances(db);
     expect(counter.take()).toBe(3);
+  });
+});
+
+describe('listActiveRecurring', () => {
+  let db: TestDb;
+
+  beforeEach(async () => {
+    db = createTestDb();
+  });
+
+  it('offers only active rules, ordered by name', async () => {
+    const [cash] = await db.insert(buckets).values({ name: 'Cash' }).returning();
+    await db.insert(recurring).values([
+      {
+        name: 'Netflix',
+        amount: 54900,
+        bucketId: cash.id,
+        frequency: 'monthly',
+        dayDue: 5,
+        startDate: '2026-01-01',
+      },
+      {
+        name: 'Gym',
+        amount: 150000,
+        bucketId: cash.id,
+        frequency: 'monthly',
+        dayDue: 1,
+        startDate: '2026-01-01',
+      },
+      {
+        // Cancelled subscriptions must not be offered as a link target.
+        name: 'Old ISP',
+        amount: 199900,
+        bucketId: cash.id,
+        frequency: 'monthly',
+        dayDue: 20,
+        startDate: '2025-01-01',
+        active: false,
+      },
+    ]);
+
+    const rules = await listActiveRecurring(db);
+    expect(rules.map((r) => r.name)).toEqual(['Gym', 'Netflix']);
   });
 });

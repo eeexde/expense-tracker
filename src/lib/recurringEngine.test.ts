@@ -1,6 +1,6 @@
 import { buckets, installments, recurring, transactions } from '../db/schema';
 import { createTestDb, TestDb } from '../db/testDb';
-import { dueDatesBetween, runCatchUp } from './recurringEngine';
+import { dueDatesBetween, isDueDate, runCatchUp } from './recurringEngine';
 import { eq } from 'drizzle-orm';
 
 describe('dueDatesBetween', () => {
@@ -56,6 +56,41 @@ describe('dueDatesBetween', () => {
   it('does not post before startDate', () => {
     const item = { frequency: 'monthly' as const, dayDue: 5, startDate: '2026-07-01' };
     expect(dueDatesBetween(item, '2026-01-01', '2026-07-31')).toEqual(['2026-07-05']);
+  });
+});
+
+describe('isDueDate', () => {
+  it('recognises the due dates a rule would post on, and only those', () => {
+    const item = { frequency: 'monthly' as const, dayDue: 15, startDate: '2026-01-01' };
+    expect(isDueDate(item, '2026-07-15')).toBe(true);
+    expect(isDueDate(item, '2026-07-14')).toBe(false);
+  });
+
+  it('follows the same month-end clamping as the poster', () => {
+    const item = { frequency: 'monthly' as const, dayDue: 31, startDate: '2026-01-01' };
+    // February has no 31st, so the clamped due is the 28th — not "no due".
+    expect(isDueDate(item, '2026-02-28')).toBe(true);
+    expect(isDueDate(item, '2026-03-31')).toBe(true);
+  });
+
+  it('is false outside the window the rule runs in', () => {
+    const item = {
+      frequency: 'monthly' as const,
+      dayDue: 10,
+      startDate: '2026-03-01',
+      endDate: '2026-05-31',
+    };
+    expect(isDueDate(item, '2026-02-10')).toBe(false);
+    expect(isDueDate(item, '2026-04-10')).toBe(true);
+    expect(isDueDate(item, '2026-06-10')).toBe(false);
+  });
+
+  it('matches weekly rules on their weekday only', () => {
+    // 2026-07-06 is a Monday (dayDue 1).
+    const item = { frequency: 'weekly' as const, dayDue: 1, startDate: '2026-07-01' };
+    expect(isDueDate(item, '2026-07-06')).toBe(true);
+    expect(isDueDate(item, '2026-07-13')).toBe(true);
+    expect(isDueDate(item, '2026-07-07')).toBe(false);
   });
 });
 

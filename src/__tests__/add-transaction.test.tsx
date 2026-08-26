@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { buckets, categories, installments, transactions } from '@/db/schema';
+import { buckets, categories, installments, recurring, transactions } from '@/db/schema';
 import { createTestDb, TestDb } from '@/db/testDb';
 import { runCatchUp } from '@/lib/recurringEngine';
 // Import ordering is irrelevant to mocking: babel-plugin-jest-hoist lifts the
@@ -117,5 +117,51 @@ describe('add-transaction linked installment payment', () => {
     expect(healed.amountPaid).toBe(100000);
     expect(healed.monthsPaid).toBe(1);
     expect(await mockTestDb.select().from(transactions)).toHaveLength(1);
+  });
+});
+
+describe('add-transaction linked recurring rule', () => {
+  it('lets a manual expense stand in for that due, so catch-up posts nothing', async () => {
+    mockTestDb = createTestDb();
+    const [b] = await mockTestDb.insert(buckets).values({ name: 'Cash' }).returning();
+    await mockTestDb.insert(categories).values({ name: 'Bills', type: 'expense' });
+    const [rule] = await mockTestDb
+      .insert(recurring)
+      .values({
+        name: 'Rent',
+        amount: 1200000,
+        bucketId: b.id,
+        frequency: 'monthly',
+        dayDue: 15,
+        startDate: '2026-07-01',
+      })
+      .returning();
+
+    await render(<AddTransactionScreen />);
+
+    // The user pays rent themselves, on the due date, for a different amount
+    // than the rule says — the point of the link is that their number wins.
+    await waitFor(() => expect(screen.getByTestId(`recurring-${rule.id}`)).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId('amount-input'), '11500');
+    await fireEvent.changeText(screen.getByTestId('date-input'), '2026-07-15');
+    await fireEvent.press(screen.getByTestId(`recurring-${rule.id}`));
+    await fireEvent.press(screen.getByTestId('submit'));
+    await waitFor(() => expect(mockRouterBack).toHaveBeenCalled());
+
+    const saved = await mockTestDb.select().from(transactions);
+    expect(saved).toHaveLength(1);
+    expect(saved[0].recurringId).toBe(rule.id);
+    expect(saved[0].amount).toBe(1150000);
+
+    // Catch-up sees the due already covered and leaves it alone — no duplicate,
+    // and no ledger side-effect to undo, because a rule holds no balance.
+    const { posted } = await runCatchUp(mockTestDb, '2026-07-31');
+    expect(posted).toEqual([]);
+    expect(await mockTestDb.select().from(transactions)).toHaveLength(1);
+
+    // The next month is still owed, so the rule keeps running.
+    await runCatchUp(mockTestDb, '2026-08-31');
+    const after = await mockTestDb.select().from(transactions);
+    expect(after.map((t) => t.date)).toEqual(['2026-07-15', '2026-08-15']);
   });
 });

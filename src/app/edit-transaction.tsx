@@ -29,8 +29,13 @@ export default function EditTransactionScreen() {
   const categories = useAppQuery((db) => db.select().from(categoriesTable));
 
   // A transaction linked to a utang/installment payment keeps its money fields
-  // fixed — those repos own the balance math. Note/date/category stay editable.
-  const linked = txn ? txn.utangId != null || txn.installmentId != null : false;
+  // fixed — those repos own the balance math. A recurring-linked one is fixed
+  // for a different reason: its (recurringId, date) pair is what suppresses the
+  // scheduled posting, so letting the money drift here would silently disagree
+  // with the rule the user chose to cover. Note/date/category stay editable.
+  const linked = txn
+    ? txn.utangId != null || txn.installmentId != null || txn.recurringId != null
+    : false;
 
   const save = async (values: TransactionFormValues) => {
     if (linked) {
