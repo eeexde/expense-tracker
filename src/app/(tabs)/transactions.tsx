@@ -130,6 +130,13 @@ export default function TransactionsScreen() {
       />
 
       <FlatList
+        // `flex: 1` (basis 0) rather than the default basis:auto. With auto,
+        // this list's flex basis is its FULL content height, so a long month
+        // overflows the column and Yoga shrinks every shrinkable sibling to
+        // make it fit — which squeezed the filter rows above and clipped their
+        // chip text. Basis 0 means the list simply takes what is left over.
+        style={styles.list}
+        testID="transaction-list"
         data={txns ?? []}
         keyExtractor={(txn) => String(txn.id)}
         renderItem={({ item: txn }) => (
@@ -188,6 +195,7 @@ function FilterRow({
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
+      testID={`${testIDPrefix}-row`}
       style={styles.filterRow}
       contentContainerStyle={styles.filterRowContent}
     >
@@ -215,7 +223,14 @@ function FilterRow({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
-  filterRow: { flexGrow: 0, marginBottom: spacing.xs },
+  /**
+   * ScrollView's own base style is `flexGrow: 1, flexShrink: 1`, so `flexGrow: 0`
+   * alone stops these rows growing but NOT shrinking. Without the explicit
+   * `flexShrink: 0` they lose height whenever the transaction list overflows the
+   * screen, and the chip labels clip vertically. They are fixed furniture.
+   */
+  filterRow: { flexGrow: 0, flexShrink: 0, marginBottom: spacing.xs },
+  list: { flex: 1 },
   filterRowContent: { gap: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.xs },
   chip: {
     flexDirection: 'row',
