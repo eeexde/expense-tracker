@@ -1,8 +1,10 @@
 import {
   centavosToInput,
   formatPeso,
+  parsePercentInput,
   parsePesoBalanceInput,
   parsePesoInput,
+  percentageFee,
   sum,
 } from './money';
 
@@ -111,6 +113,40 @@ describe('centavosToInput', () => {
       expect(text.startsWith('-')).toBe(true);
       expect(-(parsePesoBalanceInput(text.slice(1)) as number)).toBe(c);
     }
+  });
+});
+
+describe('parsePercentInput', () => {
+  it('parses whole and fractional percentages, with or without the sign', () => {
+    expect(parsePercentInput('2')).toBe(2);
+    expect(parsePercentInput('1.5')).toBe(1.5);
+    expect(parsePercentInput(' 0.125 %')).toBe(0.125);
+    expect(parsePercentInput('100')).toBe(100);
+    expect(parsePercentInput('0')).toBe(0);
+  });
+
+  it('rejects junk, negatives, over-100, and more than three decimals', () => {
+    expect(parsePercentInput('')).toBeNull();
+    expect(parsePercentInput('abc')).toBeNull();
+    expect(parsePercentInput('-1')).toBeNull();
+    expect(parsePercentInput('100.001')).toBeNull();
+    expect(parsePercentInput('1.2345')).toBeNull();
+    expect(parsePercentInput('1 .5')).toBeNull();
+    expect(parsePercentInput('1 5')).toBeNull();
+  });
+});
+
+describe('percentageFee', () => {
+  it('takes a percentage of the transfer in whole centavos', () => {
+    expect(percentageFee(100000, 2)).toBe(2000); // ₱1000 at 2% = ₱20
+    expect(percentageFee(250000, 1.5)).toBe(3750);
+    expect(percentageFee(100000, 0)).toBe(0);
+  });
+
+  it('rounds exact halves up rather than flooring the fee away', () => {
+    expect(percentageFee(100, 0.5)).toBe(1); // 0.5 centavo
+    expect(percentageFee(300, 0.5)).toBe(2); // 1.5 centavos
+    expect(percentageFee(98, 0.5)).toBe(0); // 0.49 centavo
   });
 });
 

@@ -4,13 +4,21 @@ import { Image } from 'expo-image';
 import { Bucket, Category, Recurring } from '@/db/schema';
 import { InstallmentWithRemaining } from '@/db/installmentRepo';
 import { UtangWithRemaining } from '@/db/utangRepo';
-import { centavosToInput, formatPeso, parsePesoInput } from '@/lib/money';
+import {
+  centavosToInput,
+  formatPeso,
+  parsePercentInput,
+  parsePesoBalanceInput,
+  parsePesoInput,
+  percentageFee,
+} from '@/lib/money';
 import { isDueDate } from '@/lib/recurringEngine';
 import { AmountInput } from './AmountInput';
 import {
   ChipRow,
   FormTextInput,
   KeyboardAwareForm,
+  Segmented,
   SIGNED_NUMERIC_KEYBOARD,
   SubmitButton,
   useSubmitGuard,
@@ -35,7 +43,14 @@ export interface TransactionFormValues {
   installmentId?: number;
   /** Recurring rule this expense covers, standing in for its auto-post. */
   recurringId?: number;
+  /**
+   * Fee the sending bucket is charged for this transfer, in centavos. Omitted
+   * when there is none — the destination always receives the full `amount`.
+   */
+  feeAmount?: number;
 }
+
+export type FeeMode = 'percent' | 'fixed';
 
 interface Props {
   buckets: Bucket[];
@@ -49,6 +64,11 @@ interface Props {
   activeRecurring?: Recurring[];
   /** Opens the receipt scanner (Task 11). Hidden when omitted. */
   onScanReceipt?: () => void;
+  /**
+   * Offers the transfer-fee field. Add screen only: the fee is written as its
+   * own transaction, which the edit screen has no way to carry along.
+   */
+  offerTransferFee?: boolean;
   initialKind?: TxnKind;
   initialAmountText?: string;
   initialNote?: string;
@@ -77,6 +97,11 @@ const KINDS: { kind: TxnKind; label: string }[] = [
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+const FEE_MODES: { value: FeeMode; label: string }[] = [
+  { value: 'percent', label: 'Percentage' },
+  { value: 'fixed', label: 'Fixed' },
+];
+
 export function TransactionForm({
   buckets,
   categories,
@@ -85,6 +110,7 @@ export function TransactionForm({
   openInstallments,
   activeRecurring,
   onScanReceipt,
+  offerTransferFee = false,
   initialKind = 'expense',
   initialAmountText,
   initialNote,
@@ -110,6 +136,8 @@ export function TransactionForm({
   const [utangId, setUtangId] = useState<number | undefined>(undefined);
   const [installmentId, setInstallmentId] = useState<number | undefined>(undefined);
   const [recurringId, setRecurringId] = useState<number | undefined>(undefined);
+  const [feeMode, setFeeMode] = useState<FeeMode>('percent');
+  const [feeText, setFeeText] = useState('');
   const noteRef = useRef<TextInput>(null);
 
   const kindCategories = useMemo(
@@ -142,6 +170,26 @@ export function TransactionForm({
   const linkedRecurring = linkableRecurring.find((r) => r.id === recurringId);
   // No overpay check exists here on purpose: a rule carries no balance, so any
   // amount is legal — the user's number simply replaces the rule's.
+
+  // The destination receives the full amount either way — a fee is charged to
+  // the sender on top, as its own expense — so nothing here touches `amount`.
+  // An empty field is the common case and means no fee at all; only a typed
+  // value has to parse before the transfer can be saved.
+  const showFee = kind === 'transfer' && offerTransferFee;
+  const feeInput =
+    feeText.trim() === ''
+      ? 0
+      : feeMode === 'percent'
+        ? parsePercentInput(feeText)
+        : parsePesoBalanceInput(feeText);
+  const feeValid = !showFee || feeInput !== null;
+  const fee =
+    feeInput === null || amount === null
+      ? 0
+      : feeMode === 'percent'
+        ? percentageFee(amount, feeInput)
+        : feeInput;
+
   const dateValid = DATE_RE.test(date);
   const valid =
     amount !== null &&
@@ -149,6 +197,7 @@ export function TransactionForm({
     dateValid &&
     !overpaysLink &&
     !overpaysInstallment &&
+    feeValid &&
     (kind !== 'transfer' || (toBucketId !== undefined && toBucketId !== bucketId));
 
   const [submitting, submit] = useSubmitGuard(async () => {
@@ -165,6 +214,7 @@ export function TransactionForm({
       utangId: linkedUtang?.id,
       installmentId: linkedInstallment?.id,
       recurringId: linkedRecurring?.id,
+      feeAmount: showFee && fee > 0 ? fee : undefined,
     });
   });
 
@@ -232,6 +282,33 @@ export function TransactionForm({
             onSelect={setToBucketId}
             testIDPrefix="to-bucket"
           />
+        </>
+      )}
+
+      {showFee && (
+        <>
+          <Text style={styles.label}>Fee (optional)</Text>
+          <Segmented options={FEE_MODES} value={feeMode} onChange={setFeeMode} />
+          <FormTextInput
+            style={[styles.textInput, !feeValid && styles.textInputError]}
+            value={feeText}
+            onChangeText={setFeeText}
+            placeholder={feeMode === 'percent' ? '0.00 %' : '₱0.00'}
+            placeholderTextColor={colors.inkFaint}
+            keyboardType="decimal-pad"
+            testID="fee-input"
+          />
+          {!feeValid && (
+            <Text style={styles.linkError}>
+              {feeMode === 'percent' ? 'Invalid percentage — 0 to 100.' : 'Invalid amount.'}
+            </Text>
+          )}
+          {feeValid && fee > 0 && (
+            <Text style={styles.linkHint}>
+              {formatPeso(fee)} is charged to the sending bucket as its own “Transfer Fee” expense
+              — the full {amount !== null ? formatPeso(amount) : 'amount'} still arrives.
+            </Text>
+          )}
         </>
       )}
 

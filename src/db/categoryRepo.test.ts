@@ -7,6 +7,7 @@ import {
   createCategory,
   deleteCategory,
   listCategories,
+  transferFeeCategoryId,
   updateCategory,
 } from './categoryRepo';
 
@@ -89,5 +90,22 @@ describe('categoryRepo', () => {
     const all = await db.select().from(categories);
     expect(all).toHaveLength(1);
     expect(all[0].archived).toBe(true);
+  });
+
+  it('creates the transfer-fee category once and reuses it after that', async () => {
+    const first = await transferFeeCategoryId(db);
+    const [row] = await db.select().from(categories);
+    expect(row.name).toBe('Transfer Fee');
+    expect(row.type).toBe('expense');
+
+    expect(await transferFeeCategoryId(db)).toBe(first);
+    expect(await db.select().from(categories)).toHaveLength(1);
+  });
+
+  it('reuses an existing Transfer Fee category, archived one included', async () => {
+    const existing = await createCategory(db, { name: 'Transfer Fee', type: 'expense' });
+    await archiveCategory(db, existing.id);
+    expect(await transferFeeCategoryId(db)).toBe(existing.id);
+    expect(await db.select().from(categories)).toHaveLength(1);
   });
 });
