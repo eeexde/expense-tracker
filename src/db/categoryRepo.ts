@@ -31,6 +31,32 @@ export async function createCategory(db: Db, input: NewCategoryInput): Promise<C
   return row;
 }
 
+/** Every transfer fee is filed under this one expense category. */
+export const TRANSFER_FEE_CATEGORY = 'Transfer Fee';
+
+/**
+ * Id of the transfer-fee category, created on first use.
+ *
+ * Not part of `seedIfEmpty`'s presets: that only runs on an empty table, so an
+ * existing install would never get it. The lookup ignores `archived` on
+ * purpose — a user who archived it wants it out of the pickers, not a second
+ * one appearing next to it.
+ */
+export async function transferFeeCategoryId(db: Db): Promise<number> {
+  const [existing] = await db
+    .select({ id: categories.id })
+    .from(categories)
+    .where(and(eq(categories.name, TRANSFER_FEE_CATEGORY), eq(categories.type, 'expense')))
+    .limit(1);
+  if (existing) return existing.id;
+  const created = await createCategory(db, {
+    name: TRANSFER_FEE_CATEGORY,
+    icon: 'transfer',
+    type: 'expense',
+  });
+  return created.id;
+}
+
 export interface CategoryPatch {
   name?: string;
   icon?: string;

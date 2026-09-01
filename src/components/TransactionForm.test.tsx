@@ -254,5 +254,113 @@ describe('TransactionForm', () => {
     expect(screen.getByText(/isn't one of this rule's due dates/i)).toBeTruthy();
     expect(screen.getByTestId('submit').props.accessibilityState?.disabled).toBeFalsy();
   });
+
+  it('accepts a future date', async () => {
+    const onSubmit = jest.fn();
+    await render(
+      <TransactionForm buckets={buckets} categories={categories} onSubmit={onSubmit} />,
+    );
+
+    await fireEvent.changeText(screen.getByTestId('amount-input'), '150');
+    await fireEvent.changeText(screen.getByTestId('date-input'), '2099-12-31');
+    await fireEvent.press(screen.getByTestId('submit'));
+
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ date: '2099-12-31' }));
+  });
+
+  it('offers the fee field on transfers only, and only when the screen asks', async () => {
+    const { rerender } = await render(
+      <TransactionForm buckets={buckets} categories={categories} onSubmit={jest.fn()} />,
+    );
+    await fireEvent.press(screen.getByTestId('kind-transfer'));
+    expect(screen.queryByTestId('fee-input')).toBeNull();
+
+    await rerender(
+      <TransactionForm
+        buckets={buckets}
+        categories={categories}
+        offerTransferFee
+        onSubmit={jest.fn()}
+      />,
+    );
+    expect(screen.getByTestId('fee-input')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('kind-expense'));
+    expect(screen.queryByTestId('fee-input')).toBeNull();
+  });
+
+  it('sends a percentage fee in centavos, leaving the transfer amount whole', async () => {
+    const onSubmit = jest.fn();
+    await render(
+      <TransactionForm
+        buckets={buckets}
+        categories={categories}
+        offerTransferFee
+        onSubmit={onSubmit}
+      />,
+    );
+
+    await fireEvent.press(screen.getByTestId('kind-transfer'));
+    await fireEvent.press(screen.getByTestId('to-bucket-2'));
+    await fireEvent.changeText(screen.getByTestId('amount-input'), '1000');
+    await fireEvent.changeText(screen.getByTestId('fee-input'), '2.5');
+    await fireEvent.press(screen.getByTestId('submit'));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'transfer', amount: 100000, feeAmount: 2500 }),
+    );
+  });
+
+  it('sends a fixed fee as typed', async () => {
+    const onSubmit = jest.fn();
+    await render(
+      <TransactionForm
+        buckets={buckets}
+        categories={categories}
+        offerTransferFee
+        onSubmit={onSubmit}
+      />,
+    );
+
+    await fireEvent.press(screen.getByTestId('kind-transfer'));
+    await fireEvent.press(screen.getByTestId('to-bucket-2'));
+    await fireEvent.changeText(screen.getByTestId('amount-input'), '1000');
+    await fireEvent.press(screen.getByTestId('segment-fixed'));
+    await fireEvent.changeText(screen.getByTestId('fee-input'), '15.50');
+    await fireEvent.press(screen.getByTestId('submit'));
+
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ feeAmount: 1550 }));
+  });
+
+  it('sends no fee for an empty or zero field, and blocks an unparseable one', async () => {
+    const onSubmit = jest.fn();
+    await render(
+      <TransactionForm
+        buckets={buckets}
+        categories={categories}
+        offerTransferFee
+        onSubmit={onSubmit}
+      />,
+    );
+
+    await fireEvent.press(screen.getByTestId('kind-transfer'));
+    await fireEvent.press(screen.getByTestId('to-bucket-2'));
+    await fireEvent.changeText(screen.getByTestId('amount-input'), '1000');
+    await fireEvent.press(screen.getByTestId('submit'));
+    expect(onSubmit).toHaveBeenLastCalledWith(
+      expect.objectContaining({ feeAmount: undefined }),
+    );
+
+    await fireEvent.changeText(screen.getByTestId('fee-input'), '0');
+    await fireEvent.press(screen.getByTestId('submit'));
+    expect(onSubmit).toHaveBeenLastCalledWith(
+      expect.objectContaining({ feeAmount: undefined }),
+    );
+
+    onSubmit.mockClear();
+    await fireEvent.changeText(screen.getByTestId('fee-input'), '150');
+    await fireEvent.press(screen.getByTestId('submit'));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByText(/Invalid percentage/i)).toBeTruthy();
+  });
 });
 

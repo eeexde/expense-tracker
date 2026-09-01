@@ -15,6 +15,7 @@ import {
   listOpenUtang,
   recordLinkedUtangPayment,
 } from '@/db/utangRepo';
+import { transferFeeCategoryId } from '@/db/categoryRepo';
 import { buckets as bucketsTable, categories as categoriesTable } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { colors, fonts, spacing } from '@/theme';
@@ -75,6 +76,12 @@ export default function AddTransactionScreen() {
     if (utangLink) await assertLinkedUtangPayment(db, utangLink.kind, utangLink.payment);
     if (installmentLink) await assertLinkedInstallmentPayment(db, installmentLink);
 
+    // Resolved up front so the fee's own insert is a single step: creating the
+    // category is harmless on its own, and doing it after the transfer would
+    // add a second place the save can stop with money half-logged.
+    const feeCategoryId =
+      values.feeAmount !== undefined ? await transferFeeCategoryId(db) : undefined;
+
     // Money log first, ledger second — and never the other way round. These are
     // two unguarded awaits with no usable transaction around them (both drizzle
     // drivers commit synchronously, so an async db.transaction() callback
@@ -86,7 +93,21 @@ export default function AddTransactionScreen() {
     // behind it, and nothing anywhere that could ever detect it.
     if (values.kind === 'expense') await addExpense(db, input);
     else if (values.kind === 'income') await addIncome(db, input);
-    else await addTransfer(db, { ...input, toBucketId: values.toBucketId! });
+    else {
+      await addTransfer(db, { ...input, toBucketId: values.toBucketId! });
+      // Transfer first, fee second, by the same rule as the ledger moves above:
+      // dying between them leaves the sender merely uncharged for the fee, not
+      // charged for a transfer that never happened.
+      if (values.feeAmount !== undefined) {
+        await addExpense(db, {
+          amount: values.feeAmount,
+          bucketId: values.bucketId,
+          date: values.date,
+          categoryId: feeCategoryId,
+          note: 'Transfer fee',
+        });
+      }
+    }
 
     if (utangLink) await recordLinkedUtangPayment(db, utangLink.kind, utangLink.payment);
     if (installmentLink) await recordLinkedInstallmentPayment(db, installmentLink);
@@ -107,6 +128,7 @@ export default function AddTransactionScreen() {
         activeRecurring={activeRecurring}
         onSubmit={save}
         onScanReceipt={() => router.push('/scan-receipt')}
+        offerTransferFee
         initialKind={params.kind === 'income' ? 'income' : 'expense'}
         initialAmountText={params.amountText}
         initialNote={params.merchant}

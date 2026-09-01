@@ -55,6 +55,27 @@ export function centavosToInput(centavos: number): string {
   return cents === 0 ? `${sign}${pesos}` : `${sign}${pesos}.${String(cents).padStart(2, '0')}`;
 }
 
+/**
+ * Parse a user-typed fee *percentage* ("1.5" → 1.5), a trailing `%` allowed.
+ * Null for anything invalid or above 100: a fee larger than the transfer it
+ * rides on is a typo, not a fee.
+ */
+export function parsePercentInput(input: string): number | null {
+  const cleaned = input.trim().replace(/[%\s]/g, '');
+  if (!/^\d+(\.\d{1,3})?$/.test(cleaned)) return null;
+  const percent = Number(cleaned);
+  return percent <= 100 ? percent : null;
+}
+
+/**
+ * Fee owed on `amount` at `percent`, as whole centavos. Exact halves round up
+ * (`Math.round` on a positive value), so a half-centavo fee is charged rather
+ * than floored away.
+ */
+export function percentageFee(amount: number, percent: number): number {
+  return Math.round((amount * percent) / 100);
+}
+
 export function sum(values: number[]): number {
   return values.reduce((acc, v) => acc + v, 0);
 }
