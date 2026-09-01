@@ -1,4 +1,5 @@
-import { buckets, installments, recurring, transactions } from '../db/schema';
+import { buckets, installments, recurring, recurringEvents, transactions } from '../db/schema';
+import { setFallbackBuckets } from '../db/recurringRepo';
 import { createTestDb, TestDb } from '../db/testDb';
 import { dueDatesBetween, isDueDate, runCatchUp } from './recurringEngine';
 import { eq } from 'drizzle-orm';
@@ -257,5 +258,266 @@ describe('runCatchUp', () => {
     const [txn] = await db.select().from(transactions).where(eq(transactions.recurringId, r.id));
     expect(txn).toBeDefined();
     expect(txn.date).toBe('2026-07-05');
+  });
+});
+
+/**
+ * The ordered fallback chain: bucket 1 pays the whole amount or the chain moves
+ * to bucket 2. The charge is never split, and a chain that comes up empty posts
+ * nothing at all.
+ */
+describe('runCatchUp with a fallback bucket chain', () => {
+  let db: TestDb;
+
+  const RENT = 500000;
+
+  beforeEach(() => {
+    db = createTestDb();
+  });
+
+  const makeBucket = async (name: string, startingBalance: number, type: 'bucket' | 'credit' = 'bucket') => {
+    const [b] = await db.insert(buckets).values({ name, startingBalance, type }).returning();
+    return b.id;
+  };
+
+  /** A monthly rule due on the 1st, from `primary` with `fallbacks` behind it. */
+  const makeRule = async (primary: number, fallbacks: number[]) => {
+    const [r] = await db
+      .insert(recurring)
+      .values({
+        name: 'Rent',
+        amount: RENT,
+        bucketId: primary,
+        frequency: 'monthly',
+        dayDue: 1,
+        startDate: '2026-03-01',
+      })
+      .returning();
+    await setFallbackBuckets(db, r.id, primary, fallbacks);
+    return r.id;
+  };
+
+  it('pays from the primary bucket when it covers the whole amount', async () => {
+    const primary = await makeBucket('Cash', RENT);
+    const backup = await makeBucket('GCash', RENT);
+    await makeRule(primary, [backup]);
+
+    const summary = await runCatchUp(db, '2026-03-05');
+
+    const txns = await db.select().from(transactions);
+    expect(txns).toHaveLength(1);
+    expect(txns[0].bucketId).toBe(primary);
+    expect(summary.fellBack).toHaveLength(0);
+    expect(summary.skipped).toHaveLength(0);
+    // Nothing worth telling the user about, so no event row is left behind.
+    expect(await db.select().from(recurringEvents)).toHaveLength(0);
+  });
+
+  it('falls through to the second bucket when the first is short, without splitting', async () => {
+    // One centavo short: enough to pay most of the bill, which is exactly what
+    // must NOT happen — the whole charge moves on rather than being split.
+    const primary = await makeBucket('Cash', RENT - 1);
+    const backup = await makeBucket('GCash', RENT);
+    const ruleId = await makeRule(primary, [backup]);
+
+    const summary = await runCatchUp(db, '2026-03-05');
+
+    const txns = await db.select().from(transactions);
+    expect(txns).toHaveLength(1);
+    expect(txns[0].bucketId).toBe(backup);
+    expect(txns[0].amount).toBe(RENT); // the whole amount, from one bucket
+    expect(summary.posted).toHaveLength(1);
+    expect(summary.fellBack).toEqual([
+      { name: 'Rent', amount: RENT, date: '2026-03-01', bucketId: backup, bucketName: 'GCash' },
+    ]);
+    const [item] = await db.select().from(recurring).where(eq(recurring.id, ruleId));
+    expect(item.lastPostedDate).toBe('2026-03-01');
+  });
+
+  it('walks the chain in order, past every bucket that cannot cover', async () => {
+    const first = await makeBucket('Cash', 0);
+    const second = await makeBucket('GCash', RENT - 100);
+    const third = await makeBucket('Maya', RENT);
+    await makeRule(first, [second, third]);
+
+    await runCatchUp(db, '2026-03-05');
+
+    const [txn] = await db.select().from(transactions);
+    expect(txn.bucketId).toBe(third);
+  });
+
+  it('posts nothing at all when no bucket in the chain can cover the amount', async () => {
+    const primary = await makeBucket('Cash', 100);
+    const backup = await makeBucket('GCash', 200);
+    const ruleId = await makeRule(primary, [backup]);
+
+    const summary = await runCatchUp(db, '2026-03-05');
+
+    expect(await db.select().from(transactions)).toHaveLength(0);
+    expect(summary.posted).toHaveLength(0);
+    expect(summary.skipped).toEqual([
+      { name: 'Rent', amount: RENT, date: '2026-03-01', bucketId: null, bucketName: null },
+    ]);
+    // lastPostedDate must NOT advance, or the due is skipped forever.
+    const [item] = await db.select().from(recurring).where(eq(recurring.id, ruleId));
+    expect(item.lastPostedDate).toBeNull();
+  });
+
+  /**
+   * The salary-lands-late case, and the reason lastPostedDate is a high-water
+   * mark of *settled* dues rather than of dues merely looked at.
+   */
+  it('retries a skipped due on a later run and posts it under its own due date', async () => {
+    const primary = await makeBucket('Cash', 0);
+    const ruleId = await makeRule(primary, [await makeBucket('GCash', 0)]);
+
+    const first = await runCatchUp(db, '2026-03-02');
+    expect(first.skipped).toHaveLength(1);
+    expect(await db.select().from(transactions)).toHaveLength(0);
+
+    // Payday, three days after the due date.
+    await db.insert(transactions).values({
+      type: 'income',
+      amount: 2000000,
+      bucketId: primary,
+      note: 'Sahod',
+      date: '2026-03-04',
+    });
+
+    const second = await runCatchUp(db, '2026-03-05');
+
+    expect(second.posted).toEqual([{ name: 'Rent', amount: RENT, date: '2026-03-01' }]);
+    const rent = await db.select().from(transactions).where(eq(transactions.recurringId, ruleId));
+    expect(rent).toHaveLength(1);
+    expect(rent[0].date).toBe('2026-03-01'); // backdated to when it was due
+    const [item] = await db.select().from(recurring).where(eq(recurring.id, ruleId));
+    expect(item.lastPostedDate).toBe('2026-03-01');
+    // The warning clears itself once the due is paid.
+    expect(await db.select().from(recurringEvents)).toHaveLength(0);
+  });
+
+  it('holds every due behind a stalled one, then catches all of them up', async () => {
+    // Two months of dues go unpaid. Because lastPostedDate never moved past the
+    // first of them, none are lost: funding the chain later pays both, each
+    // still dated to its own due date.
+    const primary = await makeBucket('Cash', 0);
+    const ruleId = await makeRule(primary, [await makeBucket('GCash', 0)]);
+
+    const stalled = await runCatchUp(db, '2026-04-05');
+    expect(stalled.skipped.map((s) => s.date)).toEqual(['2026-03-01', '2026-04-01']);
+    let [item] = await db.select().from(recurring).where(eq(recurring.id, ruleId));
+    expect(item.lastPostedDate).toBeNull();
+    // One event per due, and only one however many times the app is opened.
+    await runCatchUp(db, '2026-04-06');
+    expect(await db.select().from(recurringEvents)).toHaveLength(2);
+
+    await db.insert(transactions).values({
+      type: 'income',
+      amount: RENT * 2,
+      bucketId: primary,
+      note: 'Sahod',
+      date: '2026-04-10',
+    });
+    const summary = await runCatchUp(db, '2026-04-15');
+
+    expect(summary.posted.map((p) => p.date)).toEqual(['2026-03-01', '2026-04-01']);
+    [item] = await db.select().from(recurring).where(eq(recurring.id, ruleId));
+    expect(item.lastPostedDate).toBe('2026-04-01');
+    expect(await db.select().from(recurringEvents)).toHaveLength(0);
+  });
+
+  it('clears a skip the user covered by logging the expense themselves', async () => {
+    const primary = await makeBucket('Cash', 0);
+    const ruleId = await makeRule(primary, [await makeBucket('GCash', 0)]);
+    await runCatchUp(db, '2026-03-05');
+    expect(await db.select().from(recurringEvents)).toHaveLength(1);
+
+    // The "cover recurring" link on the add-transaction form writes exactly this.
+    await db.insert(transactions).values({
+      type: 'expense',
+      amount: RENT,
+      bucketId: primary,
+      note: 'Rent (paid in cash)',
+      date: '2026-03-01',
+      recurringId: ruleId,
+    });
+    await runCatchUp(db, '2026-03-06');
+
+    expect(await db.select().from(recurringEvents)).toHaveLength(0);
+    const [item] = await db.select().from(recurring).where(eq(recurring.id, ruleId));
+    expect(item.lastPostedDate).toBe('2026-03-01');
+  });
+
+  /**
+   * A credit bucket's balance is debt, not funds, and the schema carries no
+   * limit to check it against — so it always covers, and a card at the end of
+   * the chain is what stops a bill going unpaid.
+   */
+  it('treats a credit bucket as always able to cover, however negative', async () => {
+    const primary = await makeBucket('Cash', 0);
+    const card = await makeBucket('Visa', -9000000, 'credit');
+    await makeRule(primary, [card]);
+
+    const summary = await runCatchUp(db, '2026-03-05');
+
+    const [txn] = await db.select().from(transactions);
+    expect(txn.bucketId).toBe(card);
+    expect(summary.skipped).toHaveLength(0);
+    expect(summary.fellBack).toHaveLength(1);
+  });
+
+  it('never reaches a fallback that sits behind a credit bucket', async () => {
+    const primary = await makeBucket('Cash', 0);
+    const card = await makeBucket('Visa', -100, 'credit');
+    const behind = await makeBucket('Savings', RENT * 10);
+    await makeRule(primary, [card, behind]);
+
+    await runCatchUp(db, '2026-03-05');
+
+    const [txn] = await db.select().from(transactions);
+    expect(txn.bucketId).toBe(card);
+  });
+
+  /**
+   * The migration adds no `recurring_buckets` rows, so every rule that existed
+   * before this feature has a one-link chain — and a one-link chain has no
+   * routing decision to make. Such a rule posts unconditionally, exactly as it
+   * did before, rather than silently stopping the moment the bucket runs dry.
+   */
+  it('leaves a rule migrated from the single-bucket shape posting unconditionally', async () => {
+    const primary = await makeBucket('Cash', 0);
+    const [r] = await db
+      .insert(recurring)
+      .values({
+        name: 'Rent',
+        amount: RENT,
+        bucketId: primary,
+        frequency: 'monthly',
+        dayDue: 1,
+        startDate: '2026-03-01',
+      })
+      .returning(); // no setFallbackBuckets — exactly what the migration leaves
+
+    const summary = await runCatchUp(db, '2026-03-05');
+
+    const txns = await db.select().from(transactions);
+    expect(txns).toHaveLength(1);
+    expect(txns[0].bucketId).toBe(primary); // posted into the red, as before
+    expect(summary.skipped).toHaveLength(0);
+    const [item] = await db.select().from(recurring).where(eq(recurring.id, r.id));
+    expect(item.lastPostedDate).toBe('2026-03-01');
+  });
+
+  it('re-reads balances per due, so one due can drain the bucket the next needs', async () => {
+    // Two dues, and only enough in the primary for one of them.
+    const primary = await makeBucket('Cash', RENT);
+    const backup = await makeBucket('GCash', RENT * 5);
+    await makeRule(primary, [backup]);
+
+    const summary = await runCatchUp(db, '2026-04-05'); // March and April
+
+    const txns = await db.select().from(transactions);
+    expect(txns.map((t) => t.bucketId)).toEqual([primary, backup]);
+    expect(summary.fellBack.map((f) => f.date)).toEqual(['2026-04-01']);
   });
 });
