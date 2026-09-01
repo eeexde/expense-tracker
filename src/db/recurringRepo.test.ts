@@ -97,6 +97,58 @@ describe('recurring bucket chains', () => {
     expect(rows[0].bucketId).toBe(gcash);
   });
 
+  it('caps fallback history, keeping the most recent dues', async () => {
+    for (let i = 1; i <= 20; i += 1) {
+      await recordChainEvent(db, {
+        recurringId: ruleId,
+        date: `2026-03-${String(i).padStart(2, '0')}`,
+        kind: 'fallback',
+        bucketId: gcash,
+        amount: 500000,
+      });
+    }
+
+    const rows = await db.select().from(recurringEvents);
+    expect(rows).toHaveLength(12);
+    const dates = rows.map((r: { date: string }) => r.date).sort();
+    expect(dates[dates.length - 1]).toBe('2026-03-20');
+    expect(dates[0]).toBe('2026-03-09');
+  });
+
+  it('never prunes a skipped due, however much fallback history piles up', async () => {
+    await recordChainEvent(db, {
+      recurringId: ruleId,
+      date: '2026-01-01',
+      kind: 'skipped',
+      bucketId: null,
+      amount: 500000,
+    });
+    for (let i = 1; i <= 20; i += 1) {
+      await recordChainEvent(db, {
+        recurringId: ruleId,
+        date: `2026-03-${String(i).padStart(2, '0')}`,
+        kind: 'fallback',
+        bucketId: gcash,
+        amount: 500000,
+      });
+    }
+
+    const skipped = await db.select().from(recurringEvents).where(eq(recurringEvents.kind, 'skipped'));
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0].date).toBe('2026-01-01');
+  });
+
+  it('leaves a rule with little history alone', async () => {
+    await recordChainEvent(db, {
+      recurringId: ruleId,
+      date: '2026-03-01',
+      kind: 'fallback',
+      bucketId: gcash,
+      amount: 500000,
+    });
+    expect(await db.select().from(recurringEvents)).toHaveLength(1);
+  });
+
   it('counts a fallback link as a reference, so its bucket cannot be deleted', async () => {
     expect(await bucketHasReferences(db, gcash)).toBe(false);
     await setFallbackBuckets(db, ruleId, cash, [gcash]);

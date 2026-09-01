@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { Bucket, buckets, recurring, recurringBuckets, recurringEvents, RecurringEvent } from './schema';
 
 type Db = any;
@@ -90,6 +90,35 @@ export async function recordChainEvent(
 ): Promise<void> {
   await clearChainEvent(db, event.recurringId, event.date);
   await db.insert(recurringEvents).values(event);
+  await pruneChainEvents(db, event.recurringId);
+}
+
+/**
+ * Cap a rule's *fallback* history at the most recent `FALLBACK_HISTORY`.
+ *
+ * Only fallbacks accumulate: a 'skipped' row is cleared the run its due
+ * finally posts, so those are already bounded by what the user actually still
+ * owes — and pruning one would drop a warning about a bill that is not paid.
+ * Fallbacks have no such release, so a weekly rule drawing from its second
+ * bucket for a year leaves 52 rows to render one. The recurring tab reads the
+ * whole table on every mount and keeps only the latest per rule, so the cost
+ * is render time, not just disk.
+ *
+ * Kept newest-first by due date, which is the order the tab picks a winner in,
+ * so the surviving latest fallback is always index 0 and can never be pruned.
+ * Done at write time: a fallback is rare (it means a bucket ran dry), and one
+ * bounded DELETE there beats a sweep nobody remembers to schedule.
+ */
+const FALLBACK_HISTORY = 12;
+
+async function pruneChainEvents(db: Db, recurringId: number): Promise<void> {
+  const fallbacks: { id: number }[] = await db
+    .select({ id: recurringEvents.id })
+    .from(recurringEvents)
+    .where(and(eq(recurringEvents.recurringId, recurringId), eq(recurringEvents.kind, 'fallback')))
+    .orderBy(desc(recurringEvents.date));
+  const stale = fallbacks.slice(FALLBACK_HISTORY).map((row) => row.id);
+  if (stale.length) await db.delete(recurringEvents).where(inArray(recurringEvents.id, stale));
 }
 
 /** Drop a due's event, or only its event of one kind. */
