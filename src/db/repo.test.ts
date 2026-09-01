@@ -87,6 +87,41 @@ describe('repo', () => {
     expect(await listTransactions(db, { month: '2026-06', type: 'expense' })).toHaveLength(0);
   });
 
+  it('lists a transfer under both of its buckets', async () => {
+    const { cash, gcash } = await makeBuckets(db);
+    await addTransfer(db, {
+      amount: 300,
+      bucketId: cash.id,
+      toBucketId: gcash.id,
+      date: '2026-07-03',
+    });
+    await addExpense(db, { amount: 100, bucketId: gcash.id, date: '2026-07-04' });
+
+    // source side
+    const cashRows = await listTransactions(db, { bucketId: cash.id });
+    expect(cashRows.map((t) => t.amount)).toEqual([300]);
+
+    // destination side — the leg `bucketBalance` credits, and which the list
+    // used to drop entirely.
+    const gcashRows = await listTransactions(db, { bucketId: gcash.id });
+    expect(gcashRows.map((t) => t.amount).sort()).toEqual([100, 300]);
+  });
+
+  it('keeps the type filter honest for the transfer-in leg', async () => {
+    const { cash, gcash } = await makeBuckets(db);
+    await addTransfer(db, {
+      amount: 300,
+      bucketId: cash.id,
+      toBucketId: gcash.id,
+      date: '2026-07-03',
+    });
+
+    expect(await listTransactions(db, { bucketId: gcash.id, type: 'transfer' })).toHaveLength(1);
+    // The incoming leg is still a transfer, so it must not leak into an
+    // expense-filtered list for the destination bucket.
+    expect(await listTransactions(db, { bucketId: gcash.id, type: 'expense' })).toHaveLength(0);
+  });
+
   it('rejects non-positive amounts', async () => {
     const { cash } = await makeBuckets(db);
     await expect(addExpense(db, { amount: 0, bucketId: cash.id, date: '2026-07-01' })).rejects.toThrow();

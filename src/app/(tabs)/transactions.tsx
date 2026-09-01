@@ -1,5 +1,5 @@
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -19,6 +19,7 @@ import { useAppQuery, useAppQueryResult } from '@/db/hooks';
 import { pendingCount } from '@/db/notificationRepo';
 import { deleteTransaction, listTransactions } from '@/db/repo';
 import { buckets as bucketsTable, categories as categoriesTable, Transaction } from '@/db/schema';
+import { duplicateTransactionIds } from '@/lib/duplicates';
 import { formatPeso } from '@/lib/money';
 import { monthLabel, shiftMonth } from '@/lib/months';
 import { colors, currentMonth, fonts, radii, spacing } from '@/theme';
@@ -34,10 +35,30 @@ const TYPE_OPTIONS: { value: TxnType; label: string }[] = [
 export default function TransactionsScreen() {
   const router = useRouter();
   const { db, refresh } = useDb();
+  // A bucket card on the home screen deep-links here with the bucket
+  // pre-selected. `at` is a nonce the sender bumps on every press: without it,
+  // pressing the SAME card twice leaves the params byte-identical, so the sync
+  // below could not tell a fresh request from the one already applied and the
+  // filter would stay wherever the user had since moved it.
+  const params = useLocalSearchParams<{ bucketId?: string; at?: string }>();
   const [month, setMonth] = useState(currentMonth());
   const [type, setType] = useState<TxnType | undefined>(undefined);
-  const [bucketId, setBucketId] = useState<number | undefined>(undefined);
+  const [bucketId, setBucketId] = useState<number | undefined>(() =>
+    params.bucketId ? Number(params.bucketId) : undefined,
+  );
   const [categoryId, setCategoryId] = useState<number | undefined>(undefined);
+
+  // Adopt each new request once. Deliberately NOT keyed on render or on focus:
+  // coming back to this tab without a new press must leave whatever the user
+  // last picked in the chips alone, stale param or not.
+  const appliedRequest = useRef(params.bucketId ? `${params.at}:${params.bucketId}` : null);
+  useEffect(() => {
+    if (!params.bucketId) return;
+    const request = `${params.at}:${params.bucketId}`;
+    if (appliedRequest.current === request) return;
+    appliedRequest.current = request;
+    setBucketId(Number(params.bucketId));
+  }, [params.bucketId, params.at]);
 
   // The one query behind a spinner takes the non-throwing hook: a rejection
   // costs this list an inline retry, not the whole navigator. See
@@ -56,6 +77,8 @@ export default function TransactionsScreen() {
 
   const categoryById = new Map((allCategories ?? []).map((c) => [c.id, c]));
   const bucketById = new Map((allBuckets ?? []).map((b) => [b.id, b]));
+  // Grouped once per result set, not per rendered row.
+  const duplicateIds = useMemo(() => duplicateTransactionIds(txns ?? []), [txns]);
 
   const confirmDelete = (txn: Transaction) => {
     Alert.alert('Delete?', `${formatPeso(txn.amount)} — ${txn.note ?? txn.date}`, [
@@ -145,6 +168,8 @@ export default function TransactionsScreen() {
             category={txn.categoryId != null ? categoryById.get(txn.categoryId) : undefined}
             bucket={bucketById.get(txn.bucketId)}
             toBucket={txn.toBucketId != null ? bucketById.get(txn.toBucketId) : undefined}
+            perspectiveBucketId={bucketId}
+            duplicate={duplicateIds.has(txn.id)}
             onPress={() => router.push({ pathname: '/edit-transaction', params: { id: String(txn.id) } })}
             onLongPress={() => confirmDelete(txn)}
           />
@@ -169,6 +194,21 @@ export default function TransactionsScreen() {
           )
         }
       />
+
+      <Pressable
+        style={styles.fab}
+        onPress={() => router.push('/add-transaction')}
+        accessibilityRole="button"
+        accessibilityLabel="Add transaction"
+        testID="add-transaction-fab"
+      >
+        {/* Pinned for the same reason as the home screen's FAB: the glyph is a
+            shape inside a fixed 60dp circle, and the "Add transaction" label is
+            what actually scales and announces. */}
+        <Text style={styles.fabText} allowFontScaling={false}>
+          ＋
+        </Text>
+      </Pressable>
     </SafeAreaView>
   );
 }
@@ -269,7 +309,11 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   inboxPillText: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.gold },
-  content: { paddingHorizontal: spacing.md, paddingBottom: spacing.xl },
+  /**
+   * 96 = the FAB's 60dp circle + its 24dp inset + a little air, matching the
+   * home screen. `spacing.xl` left the last row sitting under the button.
+   */
+  content: { paddingHorizontal: spacing.md, paddingBottom: 96 },
   hint: {
     fontFamily: fonts.body,
     fontSize: 11,
@@ -284,4 +328,17 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingVertical: spacing.xl,
   },
+  fab: {
+    position: 'absolute',
+    right: spacing.lg,
+    bottom: spacing.lg,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: colors.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 6,
+  },
+  fabText: { fontSize: 30, color: colors.bg, lineHeight: 34 },
 });

@@ -9,6 +9,9 @@ import TransactionsScreen from '@/app/(tabs)/transactions';
 let mockTestDb: TestDb;
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: jest.fn(), back: jest.fn() }),
+  // No deep link into this screen — the bucket filter starts empty. See
+  // transactions-list.test.tsx for the params behaviour itself.
+  useLocalSearchParams: () => ({}),
 }));
 jest.mock('@/db/DbProvider', () => ({
   useDb: () => ({ db: mockTestDb, version: 0, refresh: jest.fn(), catchUp: null }),

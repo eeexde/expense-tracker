@@ -108,7 +108,18 @@ export async function listTransactions(
   const conditions = [];
   if (filter.month) conditions.push(like(transactions.date, `${filter.month}-%`));
   if (filter.type) conditions.push(eq(transactions.type, filter.type));
-  if (filter.bucketId !== undefined) conditions.push(eq(transactions.bucketId, filter.bucketId));
+  // A transfer is a single row that moves money off `bucketId` and onto
+  // `toBucketId`, and `bucketBalance` counts it on both. Filtering the list on
+  // `bucketId` alone therefore hid half of what the balance was made of: the
+  // incoming leg simply never appeared under the destination bucket.
+  if (filter.bucketId !== undefined) {
+    conditions.push(
+      or(
+        eq(transactions.bucketId, filter.bucketId),
+        and(eq(transactions.type, 'transfer'), eq(transactions.toBucketId, filter.bucketId)),
+      ),
+    );
+  }
   if (filter.categoryId !== undefined)
     conditions.push(eq(transactions.categoryId, filter.categoryId));
   let query = db

@@ -71,7 +71,22 @@ export default function HomeScreen() {
           horizontal
           data={balances ?? []}
           keyExtractor={(item) => String(item.bucket.id)}
-          renderItem={({ item }) => <BucketCard bucket={item.bucket} balance={item.balance} />}
+          renderItem={({ item }) => (
+            <BucketCard
+              bucket={item.bucket}
+              balance={item.balance}
+              // `at` makes every press a distinct request. Pressing the same
+              // card twice otherwise produces identical params, and the
+              // transactions screen — which must not clobber a filter the user
+              // has since changed by hand — would ignore the second press.
+              onPress={() =>
+                router.push({
+                  pathname: '/(tabs)/transactions',
+                  params: { bucketId: String(item.bucket.id), at: String(Date.now()) },
+                })
+              }
+            />
+          )}
           contentContainerStyle={styles.bucketRow}
           showsHorizontalScrollIndicator={false}
           scrollEnabled
