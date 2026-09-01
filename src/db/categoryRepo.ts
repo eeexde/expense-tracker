@@ -35,20 +35,33 @@ export async function createCategory(db: Db, input: NewCategoryInput): Promise<C
 export const TRANSFER_FEE_CATEGORY = 'Transfer Fee';
 
 /**
- * Id of the transfer-fee category, created on first use.
+ * Id of the transfer-fee category if it already exists, else undefined.
  *
- * Not part of `seedIfEmpty`'s presets: that only runs on an empty table, so an
- * existing install would never get it. The lookup ignores `archived` on
- * purpose — a user who archived it wants it out of the pickers, not a second
- * one appearing next to it.
+ * The read-only half of `transferFeeCategoryId`, for callers that are merely
+ * looking (does this expense look like a transfer fee?) and must not conjure
+ * a category into the pickers as a side effect of asking.
+ *
+ * The lookup ignores `archived` on purpose — a user who archived it wants it
+ * out of the pickers, not a second one appearing next to it.
  */
-export async function transferFeeCategoryId(db: Db): Promise<number> {
+export async function findTransferFeeCategoryId(db: Db): Promise<number | undefined> {
   const [existing] = await db
     .select({ id: categories.id })
     .from(categories)
     .where(and(eq(categories.name, TRANSFER_FEE_CATEGORY), eq(categories.type, 'expense')))
     .limit(1);
-  if (existing) return existing.id;
+  return existing?.id;
+}
+
+/**
+ * Id of the transfer-fee category, created on first use.
+ *
+ * Not part of `seedIfEmpty`'s presets: that only runs on an empty table, so an
+ * existing install would never get it.
+ */
+export async function transferFeeCategoryId(db: Db): Promise<number> {
+  const existing = await findTransferFeeCategoryId(db);
+  if (existing !== undefined) return existing;
   const created = await createCategory(db, {
     name: TRANSFER_FEE_CATEGORY,
     icon: 'transfer',

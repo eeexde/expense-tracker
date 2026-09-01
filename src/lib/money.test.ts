@@ -1,5 +1,6 @@
 import {
   centavosToInput,
+  feeAsPercent,
   formatPeso,
   parsePercentInput,
   parsePesoBalanceInput,
@@ -147,6 +148,42 @@ describe('percentageFee', () => {
     expect(percentageFee(100, 0.5)).toBe(1); // 0.5 centavo
     expect(percentageFee(300, 0.5)).toBe(2); // 1.5 centavos
     expect(percentageFee(98, 0.5)).toBe(0); // 0.49 centavo
+  });
+});
+
+describe('feeAsPercent', () => {
+  it('recovers the percentage a fee was charged at', () => {
+    expect(feeAsPercent(100000, 2000)).toBe(2); // ₱1000 fee'd ₱20 = 2%
+    expect(feeAsPercent(250000, 3750)).toBe(1.5);
+    expect(feeAsPercent(100000, 125)).toBe(0.125);
+  });
+
+  it('round-trips through percentageFee for every percentage it returns', () => {
+    for (const amount of [100, 999, 100000, 123457]) {
+      for (const percent of [0.125, 0.5, 1, 1.5, 2.75, 100]) {
+        const fee = percentageFee(amount, percent);
+        if (fee === 0) continue;
+        const recovered = feeAsPercent(amount, fee);
+        if (recovered !== null) expect(percentageFee(amount, recovered)).toBe(fee);
+      }
+    }
+  });
+
+  it('refuses a fee no three-decimal percentage reproduces exactly', () => {
+    // ₱18.51 on ₱1002.98 is 1.8455...%, which rounds to 1.846 — and 1.846%
+    // of ₱1002.98 is ₱18.52, a centavo more than was charged. Not reversible,
+    // so the caller must fall back to the fixed amount rather than quietly
+    // re-charge the near miss.
+    expect(percentageFee(100298, 1.846)).toBe(1852);
+    expect(feeAsPercent(100298, 1851)).toBeNull();
+  });
+
+  it('refuses fees that are not a percentage of anything sane', () => {
+    expect(feeAsPercent(100000, 200000)).toBeNull(); // fee above 100%
+    expect(feeAsPercent(100000, 0)).toBeNull();
+    expect(feeAsPercent(0, 100)).toBeNull();
+    expect(feeAsPercent(-100000, 2000)).toBeNull();
+    expect(feeAsPercent(100000.5, 2000)).toBeNull();
   });
 });
 

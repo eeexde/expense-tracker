@@ -257,6 +257,9 @@ describe('add-transaction transfer fee', () => {
     expect(fee.type).toBe('expense');
     expect(fee.amount).toBe(1500);
     expect(fee.bucketId).toBe(from.id);
+    // The link is what lets the edit and delete paths carry this row along.
+    expect(fee.feeForTransactionId).toBe(transfer.id);
+    expect(transfer.feeForTransactionId).toBeNull();
 
     const [feeCategory] = await mockTestDb
       .select()

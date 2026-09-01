@@ -1,6 +1,7 @@
 import { eq, sql } from 'drizzle-orm';
 import { buckets, installments, recurring, transactions, utang, utangPayments } from './schema';
 import { createTestDb, TestDb } from './testDb';
+import { transferFeeCategoryId } from './categoryRepo';
 import {
   addExpense,
   addIncome,
@@ -14,6 +15,7 @@ import {
   deleteTransaction,
   listActiveRecurring,
   listTransactions,
+  loadTransferFee,
   totalMoney,
   updateBucket,
   updateTransaction,
@@ -421,5 +423,134 @@ describe('listActiveRecurring', () => {
 
     const rules = await listActiveRecurring(db);
     expect(rules.map((r) => r.name)).toEqual(['Gym', 'Netflix']);
+  });
+});
+
+describe('transfer fee lifecycle', () => {
+  let db: TestDb;
+
+  beforeEach(() => {
+    db = createTestDb();
+  });
+
+  /** A transfer plus the linked fee the add screen writes alongside it. */
+  async function transferWithFee(feeAmount = 1500) {
+    const { cash, gcash } = await makeBuckets(db);
+    const transfer = await addTransfer(db, {
+      amount: 100000,
+      bucketId: cash.id,
+      toBucketId: gcash.id,
+      date: '2026-07-04',
+    });
+    const categoryId = await transferFeeCategoryId(db);
+    const fee = await addExpense(db, {
+      amount: feeAmount,
+      bucketId: cash.id,
+      date: '2026-07-04',
+      categoryId,
+      note: 'Transfer fee',
+      feeForTransactionId: transfer.id,
+    });
+    return { cash, gcash, transfer, fee, categoryId };
+  }
+
+  it('finds a fee by its link', async () => {
+    const { transfer, fee } = await transferWithFee();
+    const state = await loadTransferFee(db, transfer.id);
+    expect(state.linked?.id).toBe(fee.id);
+    expect(state.legacy).toBe(false);
+  });
+
+  it('deletes the linked fee with the transfer, and the balances follow', async () => {
+    const { cash, gcash, transfer } = await transferWithFee();
+    // ₱1000 starting − ₱1000 transferred − ₱15 fee.
+    expect(await bucketBalance(db, cash.id)).toBe(-1500);
+    expect(await bucketBalance(db, gcash.id)).toBe(150000);
+
+    await deleteTransaction(db, transfer.id);
+
+    expect(await db.select().from(transactions)).toHaveLength(0);
+    expect(await bucketBalance(db, cash.id)).toBe(100000);
+    expect(await bucketBalance(db, gcash.id)).toBe(50000);
+  });
+
+  it('deletes the fee first, so a crash between the two can never orphan it', async () => {
+    // The fee's FK points at the transfer: under `PRAGMA foreign_keys = ON`
+    // the reverse order does not merely risk an orphan, it fails outright.
+    const { transfer } = await transferWithFee();
+    await expect(db.delete(transactions).where(eq(transactions.id, transfer.id))).rejects.toThrow(
+      /FOREIGN KEY/i,
+    );
+  });
+
+  it('leaves an unrelated look-alike expense alone when the transfer goes', async () => {
+    const { cash, transfer } = await transferWithFee();
+    const other = await addExpense(db, {
+      amount: 1500,
+      bucketId: cash.id,
+      date: '2026-07-04',
+      note: 'Coffee',
+    });
+
+    await deleteTransaction(db, transfer.id);
+
+    const left = await db.select().from(transactions);
+    expect(left.map((t) => t.id)).toEqual([other.id]);
+  });
+
+  describe('a fee written before the link column existed', () => {
+    /** Exactly what migration 0008 leaves behind: NULL where the link would be. */
+    async function legacyFee() {
+      const { cash, gcash } = await makeBuckets(db);
+      const transfer = await addTransfer(db, {
+        amount: 100000,
+        bucketId: cash.id,
+        toBucketId: gcash.id,
+        date: '2026-07-04',
+      });
+      const categoryId = await transferFeeCategoryId(db);
+      const fee = await addExpense(db, {
+        amount: 1500,
+        bucketId: cash.id,
+        date: '2026-07-04',
+        categoryId,
+        note: 'Transfer fee',
+      });
+      return { cash, gcash, transfer, fee };
+    }
+
+    it('is reported but never adopted', async () => {
+      const { transfer } = await legacyFee();
+      const state = await loadTransferFee(db, transfer.id);
+      expect(state.linked).toBeUndefined();
+      expect(state.legacy).toBe(true);
+    });
+
+    it('survives deleting the transfer, as an ordinary standalone expense', async () => {
+      const { cash, transfer, fee } = await legacyFee();
+      await deleteTransaction(db, transfer.id);
+
+      const left = await db.select().from(transactions);
+      expect(left.map((t) => t.id)).toEqual([fee.id]);
+      // ₱1000 starting, the transfer undone, the unlinked fee still charged.
+      expect(await bucketBalance(db, cash.id)).toBe(98500);
+    });
+  });
+
+  it('reports no legacy candidate before the fee category exists at all', async () => {
+    const { cash, gcash } = await makeBuckets(db);
+    const transfer = await addTransfer(db, {
+      amount: 100000,
+      bucketId: cash.id,
+      toBucketId: gcash.id,
+      date: '2026-07-04',
+    });
+    expect(await loadTransferFee(db, transfer.id)).toEqual({ legacy: false });
+  });
+
+  it('reports nothing for a plain expense', async () => {
+    const { cash } = await makeBuckets(db);
+    const spend = await addExpense(db, { amount: 5000, bucketId: cash.id, date: '2026-07-04' });
+    expect(await loadTransferFee(db, spend.id)).toEqual({ legacy: false });
   });
 });

@@ -288,6 +288,57 @@ describe('TransactionForm', () => {
     expect(screen.queryByTestId('fee-input')).toBeNull();
   });
 
+  it('seeds the fee field from initialValues, in the mode the caller picked', async () => {
+    const onSubmit = jest.fn();
+    await render(
+      <TransactionForm
+        buckets={buckets}
+        categories={categories}
+        offerTransferFee
+        initialKind="transfer"
+        lockKind
+        initialValues={{
+          amount: 100000,
+          bucketId: 1,
+          toBucketId: 2,
+          fee: { mode: 'fixed', text: '18.51' },
+        }}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    expect(screen.getByTestId('fee-input').props.value).toBe('18.51');
+    // Submitting untouched re-sends the same centavos, not a re-derived figure.
+    await fireEvent.press(screen.getByTestId('submit'));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ feeAmount: 1851 }));
+  });
+
+  it('recomputes a seeded percentage fee against a changed amount', async () => {
+    const onSubmit = jest.fn();
+    await render(
+      <TransactionForm
+        buckets={buckets}
+        categories={categories}
+        offerTransferFee
+        initialKind="transfer"
+        lockKind
+        initialValues={{
+          amount: 100000,
+          bucketId: 1,
+          toBucketId: 2,
+          fee: { mode: 'percent', text: '1.5' },
+        }}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    await fireEvent.changeText(screen.getByTestId('amount-input'), '2000');
+    await fireEvent.press(screen.getByTestId('submit'));
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: 200000, feeAmount: 3000 }),
+    );
+  });
+
   it('sends a percentage fee in centavos, leaving the transfer amount whole', async () => {
     const onSubmit = jest.fn();
     await render(

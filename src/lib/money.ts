@@ -76,6 +76,26 @@ export function percentageFee(amount: number, percent: number): number {
   return Math.round((amount * percent) / 100);
 }
 
+/**
+ * The percentage that produced `fee` on `amount`, or null when none does.
+ *
+ * Only the resulting centavos are stored, so re-opening a transfer for editing
+ * has to decide what to put back in the fee field. A percentage is the useful
+ * answer — it is what makes a changed amount recompute the fee — but only when
+ * it is honest: the candidate is accepted solely if `percentageFee` maps it
+ * back to the exact same centavos, and only within `parsePercentInput`'s own
+ * grammar (at most three decimals, at most 100). Everything else — a fixed fee,
+ * or a percentage whose rounding is not reversible — returns null, and the
+ * caller falls back to prefilling the exact amount instead of quietly
+ * re-charging a slightly different fee.
+ */
+export function feeAsPercent(amount: number, fee: number): number | null {
+  if (!Number.isInteger(amount) || !Number.isInteger(fee) || amount <= 0 || fee <= 0) return null;
+  const percent = Math.round(((fee * 100) / amount) * 1000) / 1000;
+  if (percent <= 0 || percent > 100) return null;
+  return percentageFee(amount, percent) === fee ? percent : null;
+}
+
 export function sum(values: number[]): number {
   return values.reduce((acc, v) => acc + v, 0);
 }

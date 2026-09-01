@@ -1,4 +1,11 @@
-import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import {
+  AnySQLiteColumn,
+  index,
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core';
 
 /**
  * All money columns are integer centavos.
@@ -45,6 +52,19 @@ export const transactions = sqliteTable(
     utangId: integer('utang_id').references(() => utang.id),
     /** Raw notification key that produced this txn (dedup/trace for auto-log). */
     sourceNotifKey: text('source_notif_key'),
+    /**
+     * Set on a "Transfer Fee" expense: the transfer that fee was charged for.
+     * The fee is a satellite of that transfer — it is recomputed, moved to the
+     * new sending bucket, and deleted along with it.
+     *
+     * NULL on every ordinary row, and on the fee rows written before this
+     * column existed. Those stay unlinkable on purpose: nothing may adopt one
+     * by guessing, because the guess would eventually delete an expense the
+     * user typed by hand. See `loadTransferFee` in `repo.ts`.
+     */
+    feeForTransactionId: integer('fee_for_transaction_id').references(
+      (): AnySQLiteColumn => transactions.id,
+    ),
     createdAt: text('created_at')
       .notNull()
       .$defaultFn(() => new Date().toISOString()),
@@ -53,6 +73,7 @@ export const transactions = sqliteTable(
     index('idx_txn_date').on(t.date),
     index('idx_txn_bucket').on(t.bucketId),
     index('idx_txn_notif_key').on(t.sourceNotifKey),
+    index('idx_txn_fee_for').on(t.feeForTransactionId),
   ],
 );
 
