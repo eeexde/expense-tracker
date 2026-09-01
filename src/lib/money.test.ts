@@ -131,6 +131,8 @@ describe('parsePercentInput', () => {
     expect(parsePercentInput('-1')).toBeNull();
     expect(parsePercentInput('100.001')).toBeNull();
     expect(parsePercentInput('1.2345')).toBeNull();
+    expect(parsePercentInput('1 .5')).toBeNull();
+    expect(parsePercentInput('1 5')).toBeNull();
   });
 });
 

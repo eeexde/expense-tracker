@@ -61,7 +61,7 @@ export function centavosToInput(centavos: number): string {
  * rides on is a typo, not a fee.
  */
 export function parsePercentInput(input: string): number | null {
-  const cleaned = input.trim().replace(/[%\s]/g, '');
+  const cleaned = input.trim().replace(/%$/, '').trimEnd();
   if (!/^\d+(\.\d{1,3})?$/.test(cleaned)) return null;
   const percent = Number(cleaned);
   return percent <= 100 ? percent : null;

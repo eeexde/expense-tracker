@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { buckets, categories, installments, recurring, transactions } from '@/db/schema';
 import { createTestDb, TestDb } from '@/db/testDb';
 import { bucketBalance } from '@/db/repo';
@@ -249,7 +249,7 @@ describe('add-transaction transfer fee', () => {
     await fireEvent.press(screen.getByTestId('submit'));
     await waitFor(() => expect(mockRouterBack).toHaveBeenCalled());
 
-    const saved = await mockTestDb.select().from(transactions);
+    const saved = await mockTestDb.select().from(transactions).orderBy(asc(transactions.id));
     expect(saved).toHaveLength(2);
     const [transfer, fee] = saved;
     expect(transfer.type).toBe('transfer');
