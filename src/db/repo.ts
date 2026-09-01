@@ -1,4 +1,5 @@
-import { and, desc, eq, isNotNull, like, ne, or, sql } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, like, ne, or, sql } from 'drizzle-orm';
+import { findTransferFeeCategoryId } from './categoryRepo';
 import {
   Bucket,
   buckets,
@@ -30,6 +31,8 @@ export interface NewTransactionInput {
   utangId?: number;
   /** Dedup/trace key when the txn came from a captured notification. */
   sourceNotifKey?: string;
+  /** Set on a transfer-fee expense: the transfer it was charged for. */
+  feeForTransactionId?: number;
 }
 
 function assertPositive(amount: number): void {
@@ -90,8 +93,75 @@ export async function updateTransaction(
   await db.update(transactions).set(patch).where(eq(transactions.id, id));
 }
 
+/**
+ * Deletes a transaction, and the transfer fee charged for it if one is linked.
+ *
+ * Fee first, transfer second, and never the other way round. Both drivers run
+ * with `PRAGMA foreign_keys = ON`, so the reverse order fails outright on the
+ * fee's reference; and even without the constraint, dying between the two
+ * steps that way would leave a fee charged for a transfer that no longer
+ * exists — money missing from a bucket with nothing on screen to explain it.
+ * This order leaves, at worst, the transfer alive and merely un-feed, which
+ * deleting it again finishes (the fee delete is then a no-op).
+ *
+ * Every caller gets this: the edit screen's "Delete this transaction" and the
+ * list's long-press both come through here.
+ */
 export async function deleteTransaction(db: Db, id: number): Promise<void> {
+  await db.delete(transactions).where(eq(transactions.feeForTransactionId, id));
   await db.delete(transactions).where(eq(transactions.id, id));
+}
+
+/** What the edit screen needs to know about a transfer's fee. */
+export interface TransferFeeState {
+  /** The fee expense linked to this transfer, if it has one. */
+  linked?: Transaction;
+  /**
+   * An unlinked "Transfer Fee" expense sits on the same bucket and date — most
+   * likely this transfer's own fee, written before `feeForTransactionId`
+   * existed. Reported so the screen can say so; never acted on.
+   */
+  legacy: boolean;
+}
+
+/**
+ * The fee for a transfer, matched on the link and on nothing else.
+ *
+ * A fee row from before the link column existed has a NULL
+ * `feeForTransactionId` and stays invisible to `linked` on purpose. Adopting
+ * one by matching (bucket, date, category, amount) would mean the next edit
+ * rewrites it and the next delete removes it — and the very same query also
+ * matches a "Transfer Fee" expense the user logged by hand for some *other*
+ * transfer that day. Being wrong there costs a row the user cannot get back,
+ * so the guess is reported (`legacy`) and never taken.
+ */
+export async function loadTransferFee(db: Db, transferId: number): Promise<TransferFeeState> {
+  const [transfer] = await db.select().from(transactions).where(eq(transactions.id, transferId));
+  if (!transfer || transfer.type !== 'transfer') return { legacy: false };
+
+  const [linked] = await db
+    .select()
+    .from(transactions)
+    .where(eq(transactions.feeForTransactionId, transferId))
+    .limit(1);
+  if (linked) return { linked, legacy: false };
+
+  const feeCategoryId = await findTransferFeeCategoryId(db);
+  if (feeCategoryId === undefined) return { legacy: false };
+  const [candidate] = await db
+    .select({ id: transactions.id })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.type, 'expense'),
+        eq(transactions.categoryId, feeCategoryId),
+        eq(transactions.bucketId, transfer.bucketId),
+        eq(transactions.date, transfer.date),
+        isNull(transactions.feeForTransactionId),
+      ),
+    )
+    .limit(1);
+  return { legacy: candidate !== undefined };
 }
 
 export interface TransactionFilter {

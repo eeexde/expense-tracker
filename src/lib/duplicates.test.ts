@@ -49,6 +49,21 @@ describe('duplicateTransactionIds', () => {
     expect(duplicateTransactionIds([rent, rentAgain, due, dueAgain]).size).toBe(0);
   });
 
+  it('skips linked transfer fees, which are one per transfer by construction', () => {
+    // Two ₱1,000 transfers on one day, each charged the same ₱15 — an ordinary
+    // day of moving money, not a double entry.
+    const feeA = txn({ amount: 1500, feeForTransactionId: 1 });
+    const feeB = txn({ amount: 1500, feeForTransactionId: 2 });
+    expect(duplicateTransactionIds([feeA, feeB]).size).toBe(0);
+  });
+
+  it('still pairs a fee-shaped expense the user typed by hand', () => {
+    // No link means nobody vouches for it — the rule applies as usual.
+    const a = txn({ amount: 1500 });
+    const b = txn({ amount: 1500 });
+    expect(duplicateTransactionIds([a, b])).toEqual(new Set([a.id, b.id]));
+  });
+
   it('does not pair a manual entry with the posting it mirrors', () => {
     const posted = txn({ recurringId: 3 });
     const byHand = txn();

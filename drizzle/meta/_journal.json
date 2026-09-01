@@ -57,6 +57,13 @@
       "when": 1788257868911,
       "tag": "0007_damp_eternity",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1788266636594,
+      "tag": "0008_broken_wendigo",
+      "breakpoints": true
     }
   ]
 }

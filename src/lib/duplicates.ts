@@ -10,6 +10,7 @@ export interface DuplicateCandidate {
   date: string;
   recurringId?: number | null;
   installmentId?: number | null;
+  feeForTransactionId?: number | null;
 }
 
 /**
@@ -23,11 +24,16 @@ export interface DuplicateCandidate {
  *   the type into the key also keeps a transfer from pairing with itself once
  *   the transactions list shows it under both of its buckets (see
  *   `listTransactions`) — it is one row, surfaced twice.
- * - **Machine-posted rows are skipped.** A row carrying `recurringId` or
- *   `installmentId` was written by the poster, which already guards against
- *   posting a due twice; when the user *also* logs the same rent or amortization
- *   by hand that is a legitimate pair to reconcile, not a typo, and the two
- *   dues of two ₱2,000 plans falling on the same day are not duplicates at all.
+ * - **Machine-posted rows are skipped.** A row carrying `recurringId`,
+ *   `installmentId` or `feeForTransactionId` was written for the user, not
+ *   typed by them, and its uniqueness is already guaranteed elsewhere — the
+ *   poster guards against posting a due twice, and a transfer fee exists
+ *   exactly once per transfer because the link says so. When the user *also*
+ *   logs the same rent or amortization by hand that is a legitimate pair to
+ *   reconcile, not a typo; the two dues of two ₱2,000 plans falling on the same
+ *   day are not duplicates at all; and two ₱15 fees on two same-size transfers
+ *   the same day are the ordinary shape of a day spent moving money, not a
+ *   double entry.
  *
  * One pass with a Map — the caller renders per row and must not re-scan there.
  */
@@ -35,6 +41,7 @@ export function duplicateTransactionIds(txns: readonly DuplicateCandidate[]): Se
   const byKey = new Map<string, number[]>();
   for (const txn of txns) {
     if (txn.recurringId != null || txn.installmentId != null) continue;
+    if (txn.feeForTransactionId != null) continue;
     const key = `${txn.type}|${txn.amount}|${txn.date}`;
     const ids = byKey.get(key);
     if (ids) ids.push(txn.id);

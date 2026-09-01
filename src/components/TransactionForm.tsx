@@ -65,8 +65,10 @@ interface Props {
   /** Opens the receipt scanner (Task 11). Hidden when omitted. */
   onScanReceipt?: () => void;
   /**
-   * Offers the transfer-fee field. Add screen only: the fee is written as its
-   * own transaction, which the edit screen has no way to carry along.
+   * Offers the transfer-fee field. Both money screens ask for it: the fee is
+   * written as its own transaction, and `transactions.feeForTransactionId`
+   * ties that row to the transfer, so the edit screen can carry it along
+   * (recompute it, move it with the sending bucket, delete it when cleared).
    */
   offerTransferFee?: boolean;
   initialKind?: TxnKind;
@@ -81,6 +83,11 @@ interface Props {
     categoryId?: number;
     note?: string;
     date?: string;
+    /**
+     * Prefill for the fee field. Only the resulting centavos are stored, so
+     * the caller decides which way to put them back — see `feeAsPercent`.
+     */
+    fee?: { mode: FeeMode; text: string };
   };
   /** Edit mode: the kind of a saved transaction can't change. */
   lockKind?: boolean;
@@ -136,8 +143,8 @@ export function TransactionForm({
   const [utangId, setUtangId] = useState<number | undefined>(undefined);
   const [installmentId, setInstallmentId] = useState<number | undefined>(undefined);
   const [recurringId, setRecurringId] = useState<number | undefined>(undefined);
-  const [feeMode, setFeeMode] = useState<FeeMode>('percent');
-  const [feeText, setFeeText] = useState('');
+  const [feeMode, setFeeMode] = useState<FeeMode>(initialValues?.fee?.mode ?? 'percent');
+  const [feeText, setFeeText] = useState(initialValues?.fee?.text ?? '');
   const noteRef = useRef<TextInput>(null);
 
   const kindCategories = useMemo(

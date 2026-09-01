@@ -94,10 +94,11 @@ export default function AddTransactionScreen() {
     if (values.kind === 'expense') await addExpense(db, input);
     else if (values.kind === 'income') await addIncome(db, input);
     else {
-      await addTransfer(db, { ...input, toBucketId: values.toBucketId! });
+      const transfer = await addTransfer(db, { ...input, toBucketId: values.toBucketId! });
       // Transfer first, fee second, by the same rule as the ledger moves above:
       // dying between them leaves the sender merely uncharged for the fee, not
-      // charged for a transfer that never happened.
+      // charged for a transfer that never happened. The order is also what
+      // makes the link below possible at all — the fee needs an id to point at.
       if (values.feeAmount !== undefined) {
         await addExpense(db, {
           amount: values.feeAmount,
@@ -105,6 +106,7 @@ export default function AddTransactionScreen() {
           date: values.date,
           categoryId: feeCategoryId,
           note: 'Transfer fee',
+          feeForTransactionId: transfer.id,
         });
       }
     }

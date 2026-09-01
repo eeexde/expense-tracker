@@ -12,7 +12,7 @@ import {
   utangPayments,
 } from './schema';
 import { createTestDb, TestDb } from './testDb';
-import { addExpense, bucketBalance } from './repo';
+import { addExpense, addTransfer, bucketBalance } from './repo';
 import { addUtang, addUtangPayment } from './utangRepo';
 import { addCategoryRule, addSource } from './notificationRepo';
 import { setSetting } from './settingsRepo';
@@ -308,6 +308,37 @@ describe('dataTransfer', () => {
     expect(await target.select().from(appSettings)).toHaveLength(0);
     // old-table data still restores fine
     expect(await target.select().from(buckets)).toHaveLength(1);
+  });
+
+  it("restores a transfer fee's link to its own table", async () => {
+    // `transactions.feeForTransactionId` points back into `transactions`, so
+    // this row's foreign key is satisfied by insert *order within one table*,
+    // which the TABLES list cannot express. It holds because a fee is always
+    // written after the transfer it belongs to and so carries a higher id,
+    // and `exportData` selects in rowid order.
+    const source = createTestDb();
+    const [from] = await source.insert(buckets).values({ name: 'Cash' }).returning();
+    const [to] = await source.insert(buckets).values({ name: 'GCash' }).returning();
+    const transfer = await addTransfer(source, {
+      amount: 100000,
+      bucketId: from.id,
+      toBucketId: to.id,
+      date: '2026-07-04',
+    });
+    const fee = await addExpense(source, {
+      amount: 1500,
+      bucketId: from.id,
+      date: '2026-07-04',
+      note: 'Transfer fee',
+      feeForTransactionId: transfer.id,
+    });
+
+    const target = createTestDb();
+    await importData(target, exportDataSync(await exportData(source)));
+
+    const restored = await target.select().from(transactions);
+    expect(restored.find((t) => t.id === fee.id)?.feeForTransactionId).toBe(transfer.id);
+    expect(await bucketBalance(target, from.id)).toBe(-101500);
   });
 });
 

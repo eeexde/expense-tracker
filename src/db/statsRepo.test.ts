@@ -129,4 +129,38 @@ describe('statsRepo', () => {
     expect(c.installments).toBe(100000);
     expect(c.total).toBe(c.recurring + c.installments);
   });
+
+  /**
+   * A linked transfer fee needs no special case here, and pinning that down is
+   * the point: it is real money leaving a bucket, so it belongs in the month's
+   * expenses and under its own category. Only the transfer it rides on is
+   * excluded, and that exclusion is on `type`, which the fee does not share.
+   */
+  it('counts a linked transfer fee as the ordinary expense it is', async () => {
+    const [feeCategory] = await db
+      .insert(categories)
+      .values({ name: 'Transfer Fee', type: 'expense' })
+      .returning();
+    const transfer = await addTransfer(db, {
+      amount: 100000,
+      bucketId: cashId,
+      toBucketId: gcashId,
+      date: '2026-07-04',
+    });
+    await addExpense(db, {
+      amount: 1500,
+      bucketId: cashId,
+      date: '2026-07-04',
+      categoryId: feeCategory.id,
+      note: 'Transfer fee',
+      feeForTransactionId: transfer.id,
+    });
+
+    const s = await monthSummary(db, '2026-07');
+    expect(s.expenses).toBe(400000 + 1500);
+    expect(s.income).toBe(1000000);
+
+    const rows = await expensesByCategory(db, '2026-07');
+    expect(rows.find((r) => r.categoryName === 'Transfer Fee')?.total).toBe(1500);
+  });
 });
