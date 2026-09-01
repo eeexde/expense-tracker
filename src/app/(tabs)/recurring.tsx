@@ -3,10 +3,13 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAppQuery } from '@/db/hooks';
 import {
+  buckets as bucketsTable,
   installments as installmentsTable,
   Installment,
   recurring as recurringTable,
+  RecurringEvent,
 } from '@/db/schema';
+import { allBucketChains, listChainEvents } from '@/db/recurringRepo';
 import { installmentRemaining } from '@/db/installmentRepo';
 import { formatPeso } from '@/lib/money';
 import { colors, fonts, radii, spacing } from '@/theme';
@@ -17,6 +20,20 @@ export default function RecurringScreen() {
   const router = useRouter();
   const rules = useAppQuery((db) => db.select().from(recurringTable));
   const plans = useAppQuery((db) => db.select().from(installmentsTable));
+  const chains = useAppQuery(allBucketChains);
+  const buckets = useAppQuery((db) => db.select().from(bucketsTable));
+  const events = useAppQuery(listChainEvents);
+
+  const bucketName = (id: number | null) =>
+    (buckets ?? []).find((b) => b.id === id)?.name ?? 'a deleted bucket';
+  /**
+   * The latest event per rule. `listChainEvents` is ordered by due date and
+   * holds at most one row per due, so the last one wins — and a 'skipped' row
+   * only survives while the due is genuinely still unpaid, since the poster
+   * clears it the run it finally goes through.
+   */
+  const latestEvent = new Map<number, RecurringEvent>();
+  for (const event of events ?? []) latestEvent.set(event.recurringId, event);
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
@@ -50,6 +67,10 @@ export default function RecurringScreen() {
                   : `Weekly · ${WEEKDAYS[rule.dayDue]}`}
                 {rule.active ? '' : ' · paused'}
               </Text>
+              <Text style={styles.cardSub} numberOfLines={1}>
+                {(chains?.get(rule.id) ?? [rule.bucketId]).map(bucketName).join(' → ')}
+              </Text>
+              <ChainEventLine event={latestEvent.get(rule.id)} bucketName={bucketName} />
             </View>
             <Text style={[styles.cardAmount, !rule.active && styles.inactive]}>
               {formatPeso(rule.amount)}
@@ -78,6 +99,33 @@ export default function RecurringScreen() {
         ))}
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+/**
+ * The one place a fallback posting or a missed one is visible. A skipped due
+ * writes no transaction at all, so without this line the money simply never
+ * moves and nothing anywhere says why.
+ */
+function ChainEventLine({
+  event,
+  bucketName,
+}: {
+  event: RecurringEvent | undefined;
+  bucketName: (id: number | null) => string;
+}) {
+  if (!event) return null;
+  if (event.kind === 'skipped') {
+    return (
+      <Text style={styles.cardAlert}>
+        ⚠ {event.date} not posted — no bucket could cover {formatPeso(event.amount)}
+      </Text>
+    );
+  }
+  return (
+    <Text style={styles.cardNote}>
+      {event.date} paid from {bucketName(event.bucketId)}
+    </Text>
   );
 }
 
@@ -138,6 +186,8 @@ const styles = StyleSheet.create({
   cardMain: { flex: 1, gap: 2 },
   cardTitle: { fontFamily: fonts.bodyMedium, fontSize: 15, color: colors.ink },
   cardSub: { fontFamily: fonts.body, fontSize: 12, color: colors.inkFaint },
+  cardAlert: { fontFamily: fonts.bodyMedium, fontSize: 12, color: colors.danger },
+  cardNote: { fontFamily: fonts.body, fontSize: 12, color: colors.gold },
   cardAmount: { fontFamily: fonts.display, fontSize: 16, color: colors.expense },
   inactive: { color: colors.inkFaint },
   done: { color: colors.income },

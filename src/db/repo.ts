@@ -5,6 +5,7 @@ import {
   installments,
   Recurring,
   recurring,
+  recurringBuckets,
   Transaction,
   transactions,
   utangPayments,
@@ -269,7 +270,8 @@ export async function updateBucket(
 
 /**
  * True when any row still points at the bucket — transactions (either side),
- * utang payments, recurring rules, or installment plans.
+ * utang payments, recurring rules (as the primary bucket or as a link in their
+ * fallback chain), or installment plans.
  */
 export async function bucketHasReferences(db: Db, id: number): Promise<boolean> {
   const [txn] = await db
@@ -290,6 +292,12 @@ export async function bucketHasReferences(db: Db, id: number): Promise<boolean> 
     .where(eq(recurring.bucketId, id))
     .limit(1);
   if (rule) return true;
+  const [link] = await db
+    .select({ id: recurringBuckets.id })
+    .from(recurringBuckets)
+    .where(eq(recurringBuckets.bucketId, id))
+    .limit(1);
+  if (link) return true;
   const [plan] = await db
     .select({ id: installments.id })
     .from(installments)

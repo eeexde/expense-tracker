@@ -1,7 +1,14 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { reconcileInstallmentLedgers } from '../db/installmentRepo';
+import {
+  bucketChain,
+  chainBuckets,
+  clearChainEvent,
+  recordChainEvent,
+} from '../db/recurringRepo';
+import { bucketBalance } from '../db/repo';
 import { reconcileUtangPayments } from '../db/utangRepo';
-import { installments, recurring, transactions } from '../db/schema';
+import { Bucket, installments, recurring, transactions } from '../db/schema';
 
 type Db = any;
 
@@ -19,8 +26,23 @@ export interface PostedItem {
   date: string;
 }
 
+/** A due the fallback chain handled in a way the user should hear about. */
+export interface ChainEventItem {
+  name: string;
+  amount: number;
+  date: string;
+  /** Bucket that paid; null when no link in the chain could. */
+  bucketId: number | null;
+  /** That bucket's name, so messages don't have to look it up again. */
+  bucketName: string | null;
+}
+
 export interface PostedSummary {
   posted: PostedItem[];
+  /** Dues this run paid from a fallback rather than the rule's own bucket. */
+  fellBack: ChainEventItem[];
+  /** Dues no bucket could cover. Nothing at all was written for these. */
+  skipped: ChainEventItem[];
 }
 
 function daysInMonth(year: number, month: number): number {
@@ -97,6 +119,44 @@ export function isDueDate(rule: RecurrenceRule, date: string): boolean {
   return dueDatesBetween(rule, dayBefore(date), date).includes(date);
 }
 
+/**
+ * Can this bucket pay the whole amount on its own?
+ *
+ * A 'credit' bucket always can. Its balance is debt, not funds — sitting
+ * negative is the normal state of a card, and the schema carries no credit
+ * limit to measure "full" against — so refusing it for a negative balance
+ * would make the one instrument users actually fall back on unusable. A card
+ * in the chain is therefore a terminal link: everything after it is dead
+ * weight. If a limit column ever lands, this is the single place to make the
+ * check limit-aware.
+ */
+async function canCover(db: Db, bucket: Bucket, amount: number): Promise<boolean> {
+  if (bucket.type === 'credit') return true;
+  return (await bucketBalance(db, bucket.id)) >= amount;
+}
+
+/**
+ * First bucket in the chain that can cover the whole amount, or null.
+ *
+ * The charge is never split: one bucket pays all of it or the chain moves on.
+ * Balances are re-read per due rather than cached for the batch, because every
+ * due this loop posts is itself a debit against the buckets the next due is
+ * about to be measured against.
+ */
+async function pickBucket(
+  db: Db,
+  chain: number[],
+  bucketById: Map<number, Bucket>,
+  amount: number,
+): Promise<number | null> {
+  for (const id of chain) {
+    const bucket = bucketById.get(id);
+    if (!bucket) continue; // a chain link whose bucket row is no longer there
+    if (await canCover(db, bucket, amount)) return id;
+  }
+  return null;
+}
+
 /** Due dates this rule has already posted a transaction for, of the ones asked. */
 async function postedDues(db: Db, recurringId: number, dues: string[]): Promise<Set<string>> {
   if (dues.length === 0) return new Set();
@@ -128,6 +188,8 @@ async function postedDues(db: Db, recurringId: number, dues: string[]): Promise<
  */
 export async function runCatchUp(db: Db, today: string): Promise<PostedSummary> {
   const posted: PostedItem[] = [];
+  const fellBack: ChainEventItem[] = [];
+  const skipped: ChainEventItem[] = [];
 
   // Before anything reads a ledger: finish any linked payment whose money was
   // logged but whose plan/debt never moved. Skipping this would let the
@@ -139,24 +201,98 @@ export async function runCatchUp(db: Db, today: string): Promise<PostedSummary> 
   for (const item of recurringItems) {
     const fromExclusive = item.lastPostedDate ?? dayBefore(item.startDate);
     const dues = dueDatesBetween(item, fromExclusive, today);
+    if (dues.length === 0) continue;
     const already = await postedDues(db, item.id, dues);
+    const chain = await bucketChain(db, item);
+    const bucketById = await chainBuckets(db, chain);
+    /**
+     * A rule with no fallbacks posts unconditionally, exactly as it did before
+     * this feature existed: a one-link chain has no routing decision to make,
+     * and refusing to post would quietly stop tracking a bill the user still
+     * owes rather than offering anywhere else to pay it from. Coverage is only
+     * asked once the user has said where else the money may come from.
+     */
+    const hasFallbacks = chain.length > 1;
+    /**
+     * `lastPostedDate` is the high-water mark of *settled* dues, so it stops at
+     * the first one the chain could not pay and does not resume past it. That
+     * is what makes an unfunded due retryable: it stays inside the window
+     * `dueDatesBetween` hands back on the next open, and posts — still dated to
+     * the day it was actually due — as soon as some bucket can cover it. The
+     * salary that lands three days late therefore pays the 1st's bill on the
+     * 4th, under the 1st's date. The cost is that a due nobody ever funds is
+     * re-examined on every open; that is the right trade, since the bill really
+     * is still owed, and the retry ends the moment the user funds a bucket,
+     * pauses the rule, or logs the expense against it themselves (which
+     * `postedDues` then counts as the due being covered).
+     */
+    let settled = true;
     for (const date of dues) {
-      if (!already.has(date)) {
+      if (already.has(date)) {
+        // Covered while we weren't looking — by an earlier run, or by the user
+        // logging it against the rule. Either way it is no longer skipped.
+        await clearChainEvent(db, item.id, date, 'skipped');
+      } else {
+        const bucketId = hasFallbacks
+          ? await pickBucket(db, chain, bucketById, item.amount)
+          : item.bucketId;
+        if (bucketId === null) {
+          settled = false;
+          await recordChainEvent(db, {
+            recurringId: item.id,
+            date,
+            kind: 'skipped',
+            bucketId: null,
+            amount: item.amount,
+          });
+          skipped.push({
+            name: item.name,
+            amount: item.amount,
+            date,
+            bucketId: null,
+            bucketName: null,
+          });
+          continue;
+        }
         await db.insert(transactions).values({
           type: 'expense',
           amount: item.amount,
-          bucketId: item.bucketId,
+          bucketId,
           categoryId: item.categoryId ?? undefined,
           note: item.name,
           date,
           recurringId: item.id,
         });
         posted.push({ name: item.name, amount: item.amount, date });
+        // After the transaction, never before it: the event is a note *about* a
+        // posting, so a crash between the two leaves an unexplained charge that
+        // is nonetheless correct, rather than an explanation of a charge that
+        // never happened.
+        if (bucketId === item.bucketId) {
+          await clearChainEvent(db, item.id, date);
+        } else {
+          await recordChainEvent(db, {
+            recurringId: item.id,
+            date,
+            kind: 'fallback',
+            bucketId,
+            amount: item.amount,
+          });
+          fellBack.push({
+            name: item.name,
+            amount: item.amount,
+            date,
+            bucketId,
+            bucketName: bucketById.get(bucketId)?.name ?? null,
+          });
+        }
       }
-      await db
-        .update(recurring)
-        .set({ lastPostedDate: date })
-        .where(eq(recurring.id, item.id));
+      if (settled) {
+        await db
+          .update(recurring)
+          .set({ lastPostedDate: date })
+          .where(eq(recurring.id, item.id));
+      }
     }
   }
 
@@ -206,5 +342,5 @@ export async function runCatchUp(db: Db, today: string): Promise<PostedSummary> 
     }
   }
 
-  return { posted };
+  return { posted, fellBack, skipped };
 }

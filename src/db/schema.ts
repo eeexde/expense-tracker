@@ -1,4 +1,4 @@
-import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 /**
  * All money columns are integer centavos.
@@ -72,6 +72,59 @@ export const recurring = sqliteTable('recurring', {
   active: integer('active', { mode: 'boolean' }).notNull().default(true),
   lastPostedDate: text('last_posted_date'),
 });
+
+/**
+ * Fallback buckets for a recurring rule, tried in `position` order when the
+ * one before cannot cover the whole amount.
+ *
+ * `position` is the index in the *full* chain, so the first fallback is 1:
+ * position 0 is `recurring.bucketId`, which stays exactly where it is. Holding
+ * the primary in the column rather than moving it in here is what lets existing
+ * rules keep posting unchanged with no data backfill — a rule with no rows here
+ * has a one-link chain, which is today's behaviour.
+ */
+export const recurringBuckets = sqliteTable(
+  'recurring_buckets',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    recurringId: integer('recurring_id')
+      .notNull()
+      .references(() => recurring.id),
+    bucketId: integer('bucket_id')
+      .notNull()
+      .references(() => buckets.id),
+    /** Index in the chain. The primary bucket is 0, so fallbacks start at 1. */
+    position: integer('position').notNull(),
+  },
+  (t) => [uniqueIndex('idx_recurring_bucket_pos').on(t.recurringId, t.position)],
+);
+
+/**
+ * What the fallback chain did on a due the user would otherwise never notice:
+ * paid from a non-primary bucket, or paid from nothing at all.
+ *
+ * At most one row per (rule, due) — `runCatchUp` re-evaluates a skipped due on
+ * every open, and clears its own 'skipped' row the run it finally posts.
+ */
+export const recurringEvents = sqliteTable(
+  'recurring_events',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    recurringId: integer('recurring_id')
+      .notNull()
+      .references(() => recurring.id),
+    /** The due date the event is about. */
+    date: text('date').notNull(),
+    kind: text('kind', { enum: ['fallback', 'skipped'] }).notNull(),
+    /** Bucket that actually paid; null when no bucket in the chain could. */
+    bucketId: integer('bucket_id').references(() => buckets.id),
+    amount: integer('amount').notNull(),
+    createdAt: text('created_at')
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [uniqueIndex('idx_recurring_event_due').on(t.recurringId, t.date)],
+);
 
 export const installments = sqliteTable('installments', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -170,6 +223,8 @@ export type Bucket = typeof buckets.$inferSelect;
 export type Category = typeof categories.$inferSelect;
 export type Transaction = typeof transactions.$inferSelect;
 export type Recurring = typeof recurring.$inferSelect;
+export type RecurringBucket = typeof recurringBuckets.$inferSelect;
+export type RecurringEvent = typeof recurringEvents.$inferSelect;
 export type Installment = typeof installments.$inferSelect;
 export type Utang = typeof utang.$inferSelect;
 export type UtangPayment = typeof utangPayments.$inferSelect;

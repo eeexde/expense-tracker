@@ -14,20 +14,33 @@ Notifications.setNotificationHandler({
 /**
  * Tell the user which recurring/installment dues the catch-up engine just
  * posted. One detailed notification for a single item, one summary otherwise.
+ *
+ * Dues the fallback chain could NOT pay are deliberately not notified here:
+ * this runs on every cold open, and a due stays unpaid across all of them, so
+ * a notification would fire again and again for the same bill. Those live on
+ * the recurring tab instead, where the warning persists until the due posts.
  */
 export async function notifyPostedDues(summary: PostedSummary): Promise<void> {
   if (summary.posted.length === 0) return;
+
+  // A posting that came from somewhere other than the rule's own bucket is
+  // worth saying out loud, and unlike a skip it is said exactly once.
+  const fellBackOn = new Map(summary.fellBack.map((f) => [`${f.name}|${f.date}`, f.bucketName]));
 
   const existing = await Notifications.getPermissionsAsync();
   const granted =
     existing.granted || (await Notifications.requestPermissionsAsync()).granted;
   if (!granted) return;
 
+  const [first] = summary.posted;
+  const firstFallback = fellBackOn.get(`${first.name}|${first.date}`);
   const content =
     summary.posted.length === 1
       ? {
           title: 'Recurring expense posted',
-          body: `${summary.posted[0].name} — ${formatPeso(summary.posted[0].amount)}`,
+          body:
+            `${first.name} — ${formatPeso(first.amount)}` +
+            (firstFallback ? ` · paid from ${firstFallback}` : ''),
         }
       : {
           title: `${summary.posted.length} recurring expenses posted`,

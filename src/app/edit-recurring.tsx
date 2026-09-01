@@ -7,6 +7,7 @@ import { formStyles } from '@/components/form';
 import { useDb } from '@/db/DbProvider';
 import { useAppQuery } from '@/db/hooks';
 import { buckets as bucketsTable, categories as categoriesTable, recurring } from '@/db/schema';
+import { bucketChain, deleteRecurring, setFallbackBuckets } from '@/db/recurringRepo';
 import { colors, fonts, spacing } from '@/theme';
 
 export default function EditRecurringScreen() {
@@ -22,15 +23,22 @@ export default function EditRecurringScreen() {
   const buckets = useAppQuery((db) =>
     db.select().from(bucketsTable).where(eq(bucketsTable.archived, false)),
   );
+  // Position 0 is the rule's own bucketId, which the form holds separately.
+  const fallbackBucketIds = useAppQuery(
+    async (db) => (rule ? (await bucketChain(db, rule)).slice(1) : undefined),
+    [rule?.id, rule?.bucketId],
+  );
   const categories = useAppQuery((db) =>
     db.select().from(categoriesTable).where(eq(categoriesTable.type, 'expense')),
   );
 
   const save = async (values: RecurringFormValues) => {
+    const { fallbackBucketIds: chain, ...row } = values;
     await db
       .update(recurring)
-      .set({ ...values, categoryId: values.categoryId ?? null })
+      .set({ ...row, categoryId: values.categoryId ?? null })
       .where(eq(recurring.id, ruleId));
+    await setFallbackBuckets(db, ruleId, values.bucketId, chain);
     refresh();
     router.back();
   };
@@ -48,7 +56,8 @@ export default function EditRecurringScreen() {
         text: 'Delete',
         style: 'destructive',
         onPress: async () => {
-          await db.delete(recurring).where(eq(recurring.id, ruleId));
+          // Chain links and chain events point at the rule — clear them first.
+          await deleteRecurring(db, ruleId);
           refresh();
           router.back();
         },
@@ -56,7 +65,9 @@ export default function EditRecurringScreen() {
     ]);
   };
 
-  if (!rule || !buckets || !categories) return <SafeAreaView style={formStyles.screen} />;
+  if (!rule || !buckets || !categories || !fallbackBucketIds) {
+    return <SafeAreaView style={formStyles.screen} />;
+  }
 
   return (
     <SafeAreaView style={formStyles.screen} edges={['top', 'bottom']}>
@@ -71,6 +82,7 @@ export default function EditRecurringScreen() {
           dayDue: rule.dayDue,
           bucketId: rule.bucketId,
           categoryId: rule.categoryId ?? undefined,
+          fallbackBucketIds,
         }}
         onSubmit={save}
       />

@@ -16,6 +16,10 @@ import {
   pendingNotifications,
   Recurring,
   recurring,
+  RecurringBucket,
+  recurringBuckets,
+  RecurringEvent,
+  recurringEvents,
   Transaction,
   transactions,
   Utang,
@@ -45,6 +49,9 @@ export interface ExportPayload {
     categoryRules?: CategoryRule[];
     /** Added by the on-device LLM feature; absent in older backups. */
     appSettings?: AppSetting[];
+    /** Added by the recurring fallback chain; absent in older backups. */
+    recurringBuckets?: RecurringBucket[];
+    recurringEvents?: RecurringEvent[];
   };
 }
 
@@ -61,6 +68,8 @@ const TABLES = [
   { key: 'categoryRules', table: categoryRules },
   { key: 'utang', table: utang },
   { key: 'recurring', table: recurring },
+  { key: 'recurringBuckets', table: recurringBuckets },
+  { key: 'recurringEvents', table: recurringEvents },
   { key: 'installments', table: installments },
   { key: 'transactions', table: transactions },
   { key: 'utangPayments', table: utangPayments },
@@ -78,6 +87,9 @@ const OPTIONAL_TABLES = new Set<TableKey>([
   'pendingNotifications',
   'categoryRules',
   'appSettings',
+  // Added by the recurring fallback chain, after this export version shipped.
+  'recurringBuckets',
+  'recurringEvents',
 ]);
 
 /** Date columns are 'YYYY-MM-DD' local strings — see CLAUDE.md. */
@@ -122,6 +134,7 @@ const COLUMN_RULES: Partial<Record<TableKey, ColumnRules>> = {
     nonNegative: ['amountPaid'],
     date: ['startDate'],
   },
+  recurringEvents: { positive: ['amount'], date: ['date'] },
   transactions: { positive: ['amount'], date: ['date'] },
   utangPayments: { positive: ['amount'], date: ['date'] },
   pendingNotifications: { positive: ['parsedAmount'] },

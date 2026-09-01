@@ -7,6 +7,7 @@ import { formStyles } from '@/components/form';
 import { useDb } from '@/db/DbProvider';
 import { useAppQuery } from '@/db/hooks';
 import { buckets as bucketsTable, categories as categoriesTable, recurring } from '@/db/schema';
+import { setFallbackBuckets } from '@/db/recurringRepo';
 import { runCatchUp } from '@/lib/recurringEngine';
 import { todayLocal } from '@/theme';
 
@@ -25,7 +26,13 @@ export default function AddRecurringScreen() {
   );
 
   const save = async (values: RecurringFormValues) => {
-    await db.insert(recurring).values({ ...values, startDate: todayLocal() });
+    const { fallbackBucketIds, ...row } = values;
+    const [saved] = await db
+      .insert(recurring)
+      .values({ ...row, startDate: todayLocal() })
+      .returning();
+    // Before the catch-up below, so today's due already sees the whole chain.
+    await setFallbackBuckets(db, saved.id, values.bucketId, fallbackBucketIds);
     // Post immediately if today is already a due date.
     await runCatchUp(db, todayLocal());
     refresh();
