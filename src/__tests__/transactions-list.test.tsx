@@ -60,7 +60,7 @@ beforeEach(() => {
 
 describe('add-transaction entry point', () => {
   it('pushes /add-transaction from the FAB', async () => {
-    render(<TransactionsScreen />);
+    await render(<TransactionsScreen />);
     await waitForScreen();
 
     fireEvent.press(screen.getByTestId('add-transaction-fab'));
@@ -68,7 +68,7 @@ describe('add-transaction entry point', () => {
   });
 
   it('leaves room under the last row for the FAB', async () => {
-    render(<TransactionsScreen />);
+    await render(<TransactionsScreen />);
     await waitForScreen();
 
     const list = screen.getByTestId('transaction-list');
@@ -88,7 +88,7 @@ describe('transfers under a bucket filter', () => {
       date: day('03'),
     });
 
-    render(<TransactionsScreen />);
+    await render(<TransactionsScreen />);
     await waitForScreen();
 
     // Source bucket: money out.
@@ -113,7 +113,7 @@ describe('transfers under a bucket filter', () => {
       date: day('03'),
     });
 
-    render(<TransactionsScreen />);
+    await render(<TransactionsScreen />);
     await waitFor(() => expect(screen.getByTestId(`transaction-row-${transfer.id}`)).toBeTruthy());
     expect(amountTextOf(transfer.id)).toContain('₱300.00');
     expect(amountTextOf(transfer.id)).not.toContain('+');
@@ -140,7 +140,7 @@ describe('duplicate highlight', () => {
       date: day('05'),
     });
 
-    render(<TransactionsScreen />);
+    await render(<TransactionsScreen />);
     await waitFor(() => expect(screen.getByTestId(`transaction-row-${other.id}`)).toBeTruthy());
 
     expect(screen.getByTestId(`duplicate-marker-${first.id}`)).toBeTruthy();
@@ -179,7 +179,7 @@ describe('duplicate highlight', () => {
       date: day('04'),
     });
 
-    render(<TransactionsScreen />);
+    await render(<TransactionsScreen />);
     await waitFor(() => expect(screen.getByTestId(`transaction-row-${byHand.id}`)).toBeTruthy());
 
     expect(screen.queryByTestId(`duplicate-marker-${posted.id}`)).toBeNull();
@@ -196,7 +196,7 @@ describe('bucket filter from a home-screen card', () => {
     const { cash, gcash } = await makeBuckets();
     mockParams = { bucketId: String(gcash.id), at: '1' };
 
-    render(<TransactionsScreen />);
+    await render(<TransactionsScreen />);
     await waitFor(() => expect(screen.getByTestId(`filter-bucket-${gcash.id}`)).toBeTruthy());
 
     expect(chipSelected(`filter-bucket-${gcash.id}`)).toBe(true);
@@ -207,7 +207,7 @@ describe('bucket filter from a home-screen card', () => {
     const { cash, gcash } = await makeBuckets();
     mockParams = { bucketId: String(gcash.id), at: '1' };
 
-    render(<TransactionsScreen />);
+    await render(<TransactionsScreen />);
     await waitFor(() => expect(screen.getByTestId(`filter-bucket-${gcash.id}`)).toBeTruthy());
 
     mockParams = { bucketId: String(cash.id), at: '2' };
@@ -220,7 +220,7 @@ describe('bucket filter from a home-screen card', () => {
     const { gcash } = await makeBuckets();
     mockParams = { bucketId: String(gcash.id), at: '1' };
 
-    render(<TransactionsScreen />);
+    await render(<TransactionsScreen />);
     await waitFor(() => expect(screen.getByTestId(`filter-bucket-${gcash.id}`)).toBeTruthy());
 
     // User widens the filter by hand...
@@ -238,7 +238,7 @@ describe('bucket filter from a home-screen card', () => {
     const { cash, gcash } = await makeBuckets();
     mockParams = { bucketId: String(gcash.id), at: '1' };
 
-    render(<TransactionsScreen />);
+    await render(<TransactionsScreen />);
     await waitFor(() => expect(screen.getByTestId(`filter-bucket-${gcash.id}`)).toBeTruthy());
 
     fireEvent.press(screen.getByTestId(`filter-bucket-${cash.id}`));

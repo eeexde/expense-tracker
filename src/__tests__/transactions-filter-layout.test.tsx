@@ -34,7 +34,7 @@ beforeEach(() => {
  */
 describe('transactions filter rows', () => {
   it('marks every chip row unshrinkable', async () => {
-    render(<TransactionsScreen />);
+    await render(<TransactionsScreen />);
     await waitFor(() => expect(screen.getByTestId('filter-type-all')).toBeTruthy());
 
     for (const prefix of ['filter-type', 'filter-bucket', 'filter-category']) {
@@ -47,7 +47,7 @@ describe('transactions filter rows', () => {
   });
 
   it('gives the transaction list a flex basis of its own', async () => {
-    render(<TransactionsScreen />);
+    await render(<TransactionsScreen />);
     await waitFor(() => expect(screen.getByTestId('filter-type-all')).toBeTruthy());
 
     const list = screen.getByTestId('transaction-list');

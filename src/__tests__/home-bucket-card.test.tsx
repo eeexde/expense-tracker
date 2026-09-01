@@ -27,7 +27,7 @@ describe('bucket cards', () => {
   it('opens the transactions tab filtered to the bucket', async () => {
     const [gcash] = await mockTestDb.insert(buckets).values({ name: 'GCash' }).returning();
 
-    render(<HomeScreen />);
+    await render(<HomeScreen />);
     // The card's accessibilityLabel is what a screen reader reads, so it is
     // also the honest handle for the press.
     const card = await waitFor(() => screen.getByLabelText(/^GCash,/));
@@ -46,7 +46,7 @@ describe('bucket cards', () => {
     const nowSpy = jest.spyOn(Date, 'now');
     nowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(2000);
 
-    render(<HomeScreen />);
+    await render(<HomeScreen />);
     const card = await waitFor(() => screen.getByLabelText(/^GCash,/));
     fireEvent.press(card);
     fireEvent.press(card);
