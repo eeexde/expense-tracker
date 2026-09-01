@@ -44,17 +44,27 @@ async function seedRule(withFallback: boolean) {
 /**
  * A skipped due writes no transaction anywhere, so this list is the only place
  * it can be seen at all — which is what these cover.
+ *
+ * Every `render` here is awaited, and must be. RNTL 14's `render` is `async`
+ * and only publishes the result to the module-level `screen` (via
+ * `setRenderResult`) *after* its internal `await act(...)` resolves. Drop the
+ * await and `screen` is still the default stub when the assertions start, so
+ * every query throws "`render` function has not been called" — and `waitFor`
+ * cannot save it, because `waitFor` has its own 1s budget that jest's
+ * `testTimeout` does not raise. It looked like a passing test only because the
+ * pending render usually wins that 1s; on a cold transform cache it does not,
+ * which is why the first test in the file was the one that flaked.
  */
 describe('the recurring list and its bucket chain', () => {
   it('names the single bucket a rule without fallbacks draws from', async () => {
     await seedRule(false);
-    render(<RecurringScreen />);
+    await render(<RecurringScreen />);
     await waitFor(() => expect(screen.getByText('Cash')).toBeTruthy());
   });
 
   it('shows the whole chain, in order', async () => {
     await seedRule(true);
-    render(<RecurringScreen />);
+    await render(<RecurringScreen />);
     await waitFor(() => expect(screen.getByText('Cash → GCash')).toBeTruthy());
   });
 
@@ -68,7 +78,7 @@ describe('the recurring list and its bucket chain', () => {
       amount: 500000,
     });
 
-    render(<RecurringScreen />);
+    await render(<RecurringScreen />);
 
     await waitFor(() =>
       expect(
@@ -87,7 +97,7 @@ describe('the recurring list and its bucket chain', () => {
       amount: 500000,
     });
 
-    render(<RecurringScreen />);
+    await render(<RecurringScreen />);
 
     await waitFor(() => expect(screen.getByText('2026-03-01 paid from GCash')).toBeTruthy());
   });
