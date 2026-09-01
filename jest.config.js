@@ -46,18 +46,7 @@ module.exports = {
       preset: 'jest-expo',
       testMatch: null,
       testRegex: '\\.test\\.tsx$',
-      /**
-       * The first `render()` in a file pays to transform the whole react-native
-       * module graph, and that happens inside the test body, so it is billed to
-       * the test's own clock rather than to setup. Against jest's 5s default
-       * that is a coin flip on a cold cache — i.e. every CI run, on a 2-core
-       * runner that `maxWorkers: '50%'` reduces to a single worker. Cold
-       * locally these suites already reach ~11s.
-       *
-       * Raising the ceiling cannot make a passing test fail; it only stops a
-       * slow machine reporting transform time as a timeout.
-       */
-      testTimeout: 30000,
+      setupFilesAfterEnv: ['<rootDir>/jest.setup.ui.js'],
       transformIgnorePatterns: [
         'node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native|native-base|react-native-svg|react-native-gifted-charts|gifted-charts-core)',
       ],
