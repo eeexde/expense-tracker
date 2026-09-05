@@ -63,9 +63,11 @@ Steps (12):
 | 11 | stats | `tab.stats` | Charts and trends |
 | 12 | home | — | Done: replay from Settings any time |
 
-Tab-bar targets (`tab.*`) are registered by `src/app/(tabs)/_layout.tsx`
-so the spotlight can point at the tab button itself as the tour moves
-between screens.
+Tab-bar targets were planned as `tab.*` ids registered by
+`src/app/(tabs)/_layout.tsx`, so the spotlight could point at the tab
+button itself. **Not implemented**: expo-router's `<Tabs.Screen>` exposes
+no element to wrap, so those four steps carry no `targetId` and render as
+centered cards on their tab. Everything else about them is unchanged.
 
 ### `src/lib/tourMachine.ts`
 
