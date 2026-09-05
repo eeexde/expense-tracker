@@ -9,7 +9,7 @@ import SettingsScreen from '@/app/settings';
 const mockPush = jest.fn();
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush, back: jest.fn(), navigate: jest.fn() }),
-  usePathname: () => '/(tabs)',
+  usePathname: () => '/',
   useLocalSearchParams: () => ({}),
 }));
 

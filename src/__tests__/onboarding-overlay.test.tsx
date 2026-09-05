@@ -8,7 +8,7 @@ import { Rect, TourStep } from '@/onboarding/tourSteps';
 
 jest.mock('expo-router', () => ({
   useRouter: () => ({ navigate: jest.fn(), push: jest.fn(), back: jest.fn() }),
-  usePathname: () => '/(tabs)',
+  usePathname: () => '/',
 }));
 
 let mockTestDb: TestDb;

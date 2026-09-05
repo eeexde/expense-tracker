@@ -12,7 +12,7 @@ import React, {
 import { useDb } from '@/db/DbProvider';
 import { getSetting, setSetting } from '@/db/settingsRepo';
 import { INITIAL_TOUR_STATE, TourAction, tourReducer } from '@/lib/tourMachine';
-import { ONBOARDING_COMPLETED_KEY, Rect, TOUR_STEPS, TourStep } from './tourSteps';
+import { ONBOARDING_COMPLETED_KEY, Rect, TAB_PATHNAMES, TOUR_STEPS, TourStep } from './tourSteps';
 
 /**
  * How long a step waits for its target to measure itself before giving up and
@@ -153,12 +153,25 @@ export function TourProvider({
     });
   }, []);
 
+  // A replay must not open against rects measured during the previous run —
+  // the tab that was on screen when the tour ended may not be the tab a fresh
+  // run's first target lives on. Only clear on the true -> false transition
+  // (not on the initial mount, when nothing has registered yet but a target
+  // under this same tree may already be mid-registration in its own effect).
+  const wasActive = useRef(state.active);
+  useEffect(() => {
+    if (!state.active && wasActive.current) setRects({});
+    wasActive.current = state.active;
+  }, [state.active]);
+
   // ---- navigation ----------------------------------------------------------
-  // Each step declares its tab; move there before it is shown. Comparing
-  // against `pathname` keeps this from re-navigating on every render.
+  // Each step declares its tab as a group-qualified href — what
+  // `router.navigate` needs. `usePathname()` strips the group segment, so the
+  // comparison that guards re-navigation has to go through `TAB_PATHNAMES`
+  // instead of comparing the href directly against `pathname`.
   useEffect(() => {
     if (!step) return;
-    if (pathname !== step.tab) router.navigate(step.tab);
+    if (pathname !== TAB_PATHNAMES[step.tab]) router.navigate(step.tab);
   }, [pathname, router, step]);
 
   // ---- target resolution timeout ------------------------------------------

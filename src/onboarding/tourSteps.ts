@@ -12,6 +12,20 @@ export type TabRoute =
   | '/(tabs)/utang'
   | '/(tabs)/stats';
 
+/**
+ * expo-router's `usePathname()` strips group segments, so the group-qualified
+ * hrefs above (correct for `router.navigate`) never match what the hook
+ * actually returns. This is the other half of that mapping — a `Record` so a
+ * new `TabRoute` fails to typecheck here until it is mapped too.
+ */
+export const TAB_PATHNAMES: Record<TabRoute, string> = {
+  '/(tabs)': '/',
+  '/(tabs)/transactions': '/transactions',
+  '/(tabs)/recurring': '/recurring',
+  '/(tabs)/utang': '/utang',
+  '/(tabs)/stats': '/stats',
+};
+
 /** A measured target, in window coordinates. */
 export type Rect = { x: number; y: number; width: number; height: number };
 
@@ -71,7 +85,6 @@ export const TOUR_STEPS: readonly TourStep[] = [
   {
     id: 'transactions',
     tab: '/(tabs)/transactions',
-    targetId: 'tab.transactions',
     title: 'Transactions',
     body: 'Your whole history, filtered by month, type, bucket or category.',
   },
@@ -85,21 +98,18 @@ export const TOUR_STEPS: readonly TourStep[] = [
   {
     id: 'recurring',
     tab: '/(tabs)/recurring',
-    targetId: 'tab.recurring',
     title: 'Recurring and installments',
     body: 'Bills that repeat, and purchases you pay off monthly. Kuripot posts them for you on their due dates.',
   },
   {
     id: 'utang',
     tab: '/(tabs)/utang',
-    targetId: 'tab.utang',
     title: 'Utang',
     body: 'Money you owe and money owed to you, with partial payments tracked against each debt.',
   },
   {
     id: 'stats',
     tab: '/(tabs)/stats',
-    targetId: 'tab.stats',
     title: 'Stats',
     body: 'Six-month trends, spending by category, and what your monthly commitments add up to.',
   },
