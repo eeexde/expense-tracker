@@ -1,6 +1,15 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import React, { useEffect } from 'react';
-import { BackHandler, Dimensions, StyleSheet, Text } from 'react-native';
+import { AccessibilityInfo, BackHandler, Dimensions, StyleSheet, Text } from 'react-native';
+
+// `import * as X from 'react-native'` goes through Babel's
+// `_interopRequireWildcard`, which clones the module into a fresh object for
+// a CommonJS source — so spying on that clone would never touch the object
+// `TourOverlay.tsx`'s named `import { findNodeHandle }` actually reads from.
+// `require` here gets the same live module instance production code sees.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const ReactNative = require('react-native');
+import * as Reanimated from 'react-native-reanimated';
 import { createTestDb, TestDb } from '@/db/testDb';
 import { TourOverlay } from '@/onboarding/TourOverlay';
 import { TourProvider, useTour } from '@/onboarding/TourProvider';
@@ -15,6 +24,9 @@ let mockTestDb: TestDb;
 jest.mock('@/db/DbProvider', () => ({
   useDb: () => ({ db: mockTestDb, version: 0, refresh: jest.fn(), catchUp: null }),
 }));
+
+/** Must track CARD_MARGIN in TourOverlay.tsx. */
+const CARD_MARGIN = 16;
 
 const STEPS: TourStep[] = [
   { id: 'one', tab: '/(tabs)', title: 'First thing', body: 'Body one.' },
@@ -176,12 +188,100 @@ describe('tour overlay', () => {
       await renderOverlay();
       await waitFor(() => expect(screen.getByTestId('tour-title')).toHaveTextContent('First thing'));
 
-      const cardStyle = screen.getByTestId('tour-title').parent?.props.style;
-      const flat = Array.isArray(cardStyle) ? Object.assign({}, ...cardStyle) : cardStyle;
+      const flat = StyleSheet.flatten(screen.getByTestId('tour-card').props.style) as {
+        top: number;
+      };
       expect(flat.top).toBe(16);
     } finally {
       Dimensions.set(original);
     }
+  });
+
+  describe('card placement keeps the action row on screen', () => {
+    /** Swaps the window/screen dimensions for the body of `fn`, then restores. */
+    async function withViewport(width: number, height: number, fn: () => Promise<void>) {
+      const original = { window: Dimensions.get('window'), screen: Dimensions.get('screen') };
+      Dimensions.set({
+        window: { ...original.window, width, height },
+        screen: { ...original.screen, width, height },
+      });
+      try {
+        await fn();
+      } finally {
+        Dimensions.set(original);
+      }
+    }
+
+    /** Reports a real measured height for the card, the way RN's layout pass would. */
+    async function layoutCardAt(height: number) {
+      await act(async () => {
+        fireEvent(screen.getByTestId('tour-card'), 'layout', {
+          nativeEvent: { layout: { x: CARD_MARGIN, y: 0, width: 343, height } },
+        });
+      });
+    }
+
+    // iPhone SE, step 5 ('home.add' — the FAB near the bottom), iOS "Larger
+    // Text". The card does not fit below the FAB, so it goes above; with the
+    // hardcoded 190pt estimate that put its top at 377 and its real 380pt
+    // bottom at 757 on a 667pt screen, i.e. the whole Skip/Back/Next row off
+    // screen with a touch-swallowing overlay underneath it. No hardware back
+    // on iOS and the flag is never written, so the trap repeats every launch.
+    it('uses the measured card height so a bottom spotlight cannot push the buttons off screen', async () => {
+      await withViewport(375, 667, async () => {
+        const fab: Rect = { x: 303, y: 580, width: 56, height: 56 };
+        await render(
+          <TourProvider steps={[{ ...STEPS[0], targetId: 'home.add' }]}>
+            <Probe id="home.add" rect={fab} />
+            <TourOverlay />
+          </TourProvider>,
+        );
+
+        await waitFor(() => expect(screen.getByTestId('tour-card')).toBeTruthy());
+        await layoutCardAt(380);
+
+        const flat = StyleSheet.flatten(screen.getByTestId('tour-card').props.style) as {
+          top: number;
+        };
+        expect(flat.top).toBeGreaterThanOrEqual(CARD_MARGIN);
+        // The action row is the card's last child, so the card's own bottom
+        // edge staying inside the viewport is what keeps it reachable.
+        expect(flat.top + 380).toBeLessThanOrEqual(667 - CARD_MARGIN);
+      });
+    });
+
+    // The degenerate case: nothing the placement can do makes a 500pt card fit
+    // in a 300pt window. Pinning it to the top margin alone is not enough --
+    // the buttons would simply be the part that hangs off. The card has to be
+    // capped to the viewport so the body scrolls and the action row does not.
+    it('caps a card taller than the viewport instead of letting the action row hang off', async () => {
+      await withViewport(375, 300, async () => {
+        await renderOverlay();
+        await waitFor(() => expect(screen.getByTestId('tour-card')).toBeTruthy());
+        await layoutCardAt(500);
+
+        const flat = StyleSheet.flatten(screen.getByTestId('tour-card').props.style) as {
+          top: number;
+          maxHeight: number;
+        };
+        expect(flat.top).toBe(CARD_MARGIN);
+        expect(flat.maxHeight).toBeLessThanOrEqual(300 - CARD_MARGIN * 2);
+        expect(flat.top + flat.maxHeight).toBeLessThanOrEqual(300 - CARD_MARGIN);
+      });
+    });
+
+    it('keeps the title and body scrollable so they are the part that overflows', async () => {
+      await withViewport(375, 300, async () => {
+        await renderOverlay();
+        await waitFor(() => expect(screen.getByTestId('tour-card')).toBeTruthy());
+
+        const scroll = screen.getByTestId('tour-card-scroll');
+        expect(within(scroll).getByTestId('tour-title')).toBeTruthy();
+        expect(within(scroll).getByTestId('tour-body')).toBeTruthy();
+        // The counter and the buttons stay outside the scroller.
+        expect(within(scroll).queryByTestId('tour-next')).toBeNull();
+      });
+    });
   });
 
   it('renders a spotlight hole around the registered target, punched out with evenodd', async () => {
@@ -328,5 +428,61 @@ describe('tour overlay', () => {
     // The overlay's own buttons still fire through that same layer.
     await fireEvent.press(screen.getByTestId('tour-next'));
     await waitFor(() => expect(screen.getByTestId('tour-title')).toHaveTextContent('Second thing'));
+  });
+
+  describe('accessibility on step change', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('fades in with withTiming when reduce motion is off', async () => {
+      jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
+      const withTimingSpy = jest.spyOn(Reanimated, 'withTiming');
+
+      await renderOverlay();
+      await waitFor(() => expect(screen.getByTestId('tour-title')).toHaveTextContent('First thing'));
+      // Let the async `isReduceMotionEnabled()` read land before advancing.
+      await act(async () => {});
+      withTimingSpy.mockClear();
+
+      await fireEvent.press(screen.getByTestId('tour-next'));
+      await waitFor(() => expect(screen.getByTestId('tour-title')).toHaveTextContent('Second thing'));
+
+      expect(withTimingSpy).toHaveBeenCalledWith(1, expect.objectContaining({ duration: expect.any(Number) }));
+    });
+
+    it('skips the fade when reduce motion is on', async () => {
+      jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(true);
+      const withTimingSpy = jest.spyOn(Reanimated, 'withTiming');
+
+      await renderOverlay();
+      await waitFor(() => expect(screen.getByTestId('tour-title')).toHaveTextContent('First thing'));
+      await act(async () => {});
+      withTimingSpy.mockClear();
+
+      await fireEvent.press(screen.getByTestId('tour-next'));
+      await waitFor(() => expect(screen.getByTestId('tour-title')).toHaveTextContent('Second thing'));
+
+      expect(withTimingSpy).not.toHaveBeenCalled();
+    });
+
+    it('moves accessibility focus to the title on every step change', async () => {
+      // react-test-renderer never assigns real UIManager node tags, so
+      // `findNodeHandle` returns null in every RNTL test regardless of the
+      // ref it is given — stubbed here the same way, so the production call
+      // gets a truthy handle to focus.
+      jest.spyOn(ReactNative, 'findNodeHandle').mockReturnValue(42);
+      const focusSpy = jest.spyOn(AccessibilityInfo, 'setAccessibilityFocus').mockImplementation(() => {});
+
+      await renderOverlay();
+      await waitFor(() => expect(screen.getByTestId('tour-title')).toHaveTextContent('First thing'));
+      await waitFor(() => expect(focusSpy).toHaveBeenCalledWith(42));
+      focusSpy.mockClear();
+
+      await fireEvent.press(screen.getByTestId('tour-next'));
+      await waitFor(() => expect(screen.getByTestId('tour-title')).toHaveTextContent('Second thing'));
+
+      await waitFor(() => expect(focusSpy).toHaveBeenCalledWith(42));
+    });
   });
 });

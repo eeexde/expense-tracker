@@ -15,3 +15,26 @@
  * machine reporting transform time as a timeout.
  */
 jest.setTimeout(30000);
+
+/**
+ * `react-native-reanimated`'s own `mock.js`/`SHOULD_BE_USE_WEB` fallback
+ * (4.5.0) still pulls in `react-native-worklets`, which throws
+ * (`loadUnpackers` on an undefined native module) the instant it is
+ * required under jest — its native/web split has no jest branch of its own.
+ * `TourOverlay`'s step fade only needs a shared value, a style hook, and a
+ * timing helper that resolves synchronously, so this stands in for the
+ * whole package rather than fighting the real one's native init path.
+ */
+jest.mock('react-native-reanimated', () => {
+  const { useRef } = require('react');
+  const { View } = require('react-native');
+  return {
+    __esModule: true,
+    default: { View },
+    useSharedValue: (initial) => useRef({ value: initial }).current,
+    useAnimatedStyle: (factory) => factory(),
+    withTiming: (toValue) => toValue,
+    withSpring: (toValue) => toValue,
+    cancelAnimation: () => {},
+  };
+});
