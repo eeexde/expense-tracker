@@ -16,6 +16,7 @@ import { useAppQuery, useAppQueryResult } from '@/db/hooks';
 import { allBucketBalances, listTransactions, totalMoney } from '@/db/repo';
 import { categories as categoriesTable, buckets as bucketsTable } from '@/db/schema';
 import { formatPeso } from '@/lib/money';
+import { TourTarget } from '@/onboarding/TourTarget';
 import { colors, fonts, radii, spacing } from '@/theme';
 
 export default function HomeScreen() {
@@ -41,20 +42,24 @@ export default function HomeScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.brandRow}>
           <Text style={styles.brand}>Kuripot</Text>
-          <Pressable
-            onPress={() => router.push('/settings')}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel="Settings"
-          >
-            <Text style={styles.settingsLink}>⚙</Text>
-          </Pressable>
+          <TourTarget id="home.settings">
+            <Pressable
+              onPress={() => router.push('/settings')}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Settings"
+            >
+              <Text style={styles.settingsLink}>⚙</Text>
+            </Pressable>
+          </TourTarget>
         </View>
 
-        <View style={styles.hero}>
-          <Text style={styles.heroLabel}>Total money</Text>
-          <Text style={styles.heroAmount}>{total === undefined ? '…' : formatPeso(total)}</Text>
-        </View>
+        <TourTarget id="home.total">
+          <View style={styles.hero}>
+            <Text style={styles.heroLabel}>Total money</Text>
+            <Text style={styles.heroAmount}>{total === undefined ? '…' : formatPeso(total)}</Text>
+          </View>
+        </TourTarget>
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Buckets</Text>
@@ -67,73 +72,79 @@ export default function HomeScreen() {
             <Text style={styles.manageLink}>✎ Manage</Text>
           </Pressable>
         </View>
-        <FlatList
-          horizontal
-          data={balances ?? []}
-          keyExtractor={(item) => String(item.bucket.id)}
-          renderItem={({ item }) => (
-            <BucketCard
-              bucket={item.bucket}
-              balance={item.balance}
-              // `at` makes every press a distinct request. Pressing the same
-              // card twice otherwise produces identical params, and the
-              // transactions screen — which must not clobber a filter the user
-              // has since changed by hand — would ignore the second press.
-              onPress={() =>
-                router.push({
-                  pathname: '/(tabs)/transactions',
-                  params: { bucketId: String(item.bucket.id), at: String(Date.now()) },
-                })
-              }
+        <TourTarget id="home.buckets">
+          <FlatList
+            horizontal
+            data={balances ?? []}
+            keyExtractor={(item) => String(item.bucket.id)}
+            renderItem={({ item }) => (
+              <BucketCard
+                bucket={item.bucket}
+                balance={item.balance}
+                // `at` makes every press a distinct request. Pressing the same
+                // card twice otherwise produces identical params, and the
+                // transactions screen — which must not clobber a filter the user
+                // has since changed by hand — would ignore the second press.
+                onPress={() =>
+                  router.push({
+                    pathname: '/(tabs)/transactions',
+                    params: { bucketId: String(item.bucket.id), at: String(Date.now()) },
+                  })
+                }
+              />
+            )}
+            contentContainerStyle={styles.bucketRow}
+            showsHorizontalScrollIndicator={false}
+            scrollEnabled
+          />
+        </TourTarget>
+
+        <TourTarget id="home.recent">
+          <Text style={styles.sectionTitle}>Recent</Text>
+          {recentError !== null && recent === undefined && (
+            <QueryErrorNotice
+              message="Couldn't load your recent transactions."
+              onRetry={retryRecent}
+              testID="recent-error"
             />
           )}
-          contentContainerStyle={styles.bucketRow}
-          showsHorizontalScrollIndicator={false}
-          scrollEnabled
-        />
-
-        <Text style={styles.sectionTitle}>Recent</Text>
-        {recentError !== null && recent === undefined && (
-          <QueryErrorNotice
-            message="Couldn't load your recent transactions."
-            onRetry={retryRecent}
-            testID="recent-error"
-          />
-        )}
-        {recentError === null && recent === undefined && (
-          <ActivityIndicator style={styles.loading} color={colors.gold} />
-        )}
-        {recent !== undefined && recent.length === 0 && (
-          <Text style={styles.empty}>No transactions yet. Tap + to get started.</Text>
-        )}
-        {(recent ?? []).map((txn) => (
-          <TransactionRow
-            key={txn.id}
-            txn={txn}
-            category={txn.categoryId != null ? categoryById.get(txn.categoryId) : undefined}
-            bucket={bucketById.get(txn.bucketId)}
-            toBucket={txn.toBucketId != null ? bucketById.get(txn.toBucketId) : undefined}
-            onPress={() => router.push({ pathname: '/edit-transaction', params: { id: String(txn.id) } })}
-          />
-        ))}
+          {recentError === null && recent === undefined && (
+            <ActivityIndicator style={styles.loading} color={colors.gold} />
+          )}
+          {recent !== undefined && recent.length === 0 && (
+            <Text style={styles.empty}>No transactions yet. Tap + to get started.</Text>
+          )}
+          {(recent ?? []).map((txn) => (
+            <TransactionRow
+              key={txn.id}
+              txn={txn}
+              category={txn.categoryId != null ? categoryById.get(txn.categoryId) : undefined}
+              bucket={bucketById.get(txn.bucketId)}
+              toBucket={txn.toBucketId != null ? bucketById.get(txn.toBucketId) : undefined}
+              onPress={() => router.push({ pathname: '/edit-transaction', params: { id: String(txn.id) } })}
+            />
+          ))}
+        </TourTarget>
       </ScrollView>
 
-      <Pressable
-        style={styles.fab}
-        onPress={() => router.push('/add-transaction')}
-        accessibilityRole="button"
-        accessibilityLabel="Add transaction"
-      >
-        {/* The FAB is a fixed 60dp circle, so its glyph cannot be allowed to
-            scale with it: at the system's 2.0x font setting this "＋" takes a
-            ~68dp line box and bursts out of the button. Pinning it costs
-            nothing — it is a shape, not text, and what a large-text or
-            screen-reader user actually gets is the "Add transaction" label
-            above, which still scales/announces normally. */}
-        <Text style={styles.fabText} allowFontScaling={false}>
-          ＋
-        </Text>
-      </Pressable>
+      <TourTarget id="home.add" style={styles.fabAnchor}>
+        <Pressable
+          style={styles.fab}
+          onPress={() => router.push('/add-transaction')}
+          accessibilityRole="button"
+          accessibilityLabel="Add transaction"
+        >
+          {/* The FAB is a fixed 60dp circle, so its glyph cannot be allowed to
+              scale with it: at the system's 2.0x font setting this "＋" takes a
+              ~68dp line box and bursts out of the button. Pinning it costs
+              nothing — it is a shape, not text, and what a large-text or
+              screen-reader user actually gets is the "Add transaction" label
+              above, which still scales/announces normally. */}
+          <Text style={styles.fabText} allowFontScaling={false}>
+            ＋
+          </Text>
+        </Pressable>
+      </TourTarget>
     </SafeAreaView>
   );
 }
@@ -186,10 +197,8 @@ const styles = StyleSheet.create({
   bucketRow: { gap: spacing.sm, paddingBottom: spacing.sm },
   empty: { fontFamily: fonts.body, fontSize: 14, color: colors.inkFaint, paddingVertical: spacing.md },
   loading: { paddingVertical: spacing.md },
+  fabAnchor: { position: 'absolute', right: spacing.lg, bottom: spacing.lg },
   fab: {
-    position: 'absolute',
-    right: spacing.lg,
-    bottom: spacing.lg,
     width: 60,
     height: 60,
     borderRadius: 30,

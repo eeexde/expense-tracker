@@ -22,6 +22,7 @@ import { buckets as bucketsTable, categories as categoriesTable, Transaction } f
 import { duplicateTransactionIds } from '@/lib/duplicates';
 import { formatPeso } from '@/lib/money';
 import { monthLabel, shiftMonth } from '@/lib/months';
+import { TourTarget } from '@/onboarding/TourTarget';
 import { colors, currentMonth, fonts, radii, spacing } from '@/theme';
 
 type TxnType = 'expense' | 'income' | 'transfer';
@@ -118,14 +119,16 @@ export default function TransactionsScreen() {
       </View>
 
       {inboxCount > 0 && (
-        <Pressable
-          style={styles.inboxPill}
-          onPress={() => router.push('/notification-inbox')}
-          accessibilityRole="button"
-          testID="notification-inbox-badge"
-        >
-          <Text style={styles.inboxPillText}>Inbox {inboxCount}</Text>
-        </Pressable>
+        <TourTarget id="transactions.inbox">
+          <Pressable
+            style={styles.inboxPill}
+            onPress={() => router.push('/notification-inbox')}
+            accessibilityRole="button"
+            testID="notification-inbox-badge"
+          >
+            <Text style={styles.inboxPillText}>Inbox {inboxCount}</Text>
+          </Pressable>
+        </TourTarget>
       )}
 
       <FilterRow

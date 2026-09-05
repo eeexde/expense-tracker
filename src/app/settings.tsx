@@ -13,7 +13,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDb } from '@/db/DbProvider';
 import { exportData, importData } from '@/db/dataTransfer';
+import { clearSetting } from '@/db/settingsRepo';
 import { downloadBackup, pickBackup, shareBackup } from '@/lib/backup';
+import { useTourOptional } from '@/onboarding/TourProvider';
+import { ONBOARDING_COMPLETED_KEY } from '@/onboarding/tourSteps';
 import { colors, fonts, radii, spacing, todayLocal } from '@/theme';
 
 type Busy = 'export' | 'import' | null;
@@ -32,6 +35,16 @@ export default function SettingsScreen() {
   const { db, refresh } = useDb();
   const [busy, setBusy] = useState<Busy>(null);
   const [status, setStatus] = useState<Status | null>(null);
+  const tour = useTourOptional();
+
+  // Clearing the flag is what actually makes the tour run again; `start()` is
+  // the immediate effect. The screen's own tests render it with no provider,
+  // hence the optional hook and the optional call.
+  const replayWalkthrough = async () => {
+    await clearSetting(db, ONBOARDING_COMPLETED_KEY);
+    router.back();
+    tour?.start();
+  };
 
   const runExport = (mode: 'download' | 'share') => async () => {
     setBusy('export');
@@ -187,6 +200,17 @@ export default function SettingsScreen() {
             {status.text}
           </Text>
         )}
+
+        <Text style={styles.sectionTitle}>Help</Text>
+        <Pressable
+          style={styles.action}
+          onPress={replayWalkthrough}
+          accessibilityRole="button"
+          testID="replay-walkthrough"
+        >
+          <Text style={styles.actionTitle}>Replay walkthrough</Text>
+          <Text style={styles.actionSub}>Run the first-time tour of the tabs and buttons again.</Text>
+        </Pressable>
 
         <Text style={styles.sectionTitle}>Organize</Text>
         <Pressable
