@@ -85,7 +85,7 @@ export function TourOverlay() {
     <View style={styles.fill} testID="tour-overlay" pointerEvents="box-none">
       {/* Swallows every touch aimed at the app underneath: the tour advances
           through its own buttons only, so nothing can be tapped out of order. */}
-      <Pressable style={styles.fill} accessible={false} pointerEvents="none" />
+      <Pressable style={styles.fill} onPress={() => {}} accessible={false} />
 
       <Svg style={styles.fill} width={width} height={height} pointerEvents="none">
         <Path

@@ -310,14 +310,17 @@ describe('tour overlay', () => {
     // layer is explicitly non-interactive so it never steals presses from
     // the card's own buttons. `overlay.children` here are the resolved host
     // nodes, not the Pressable/Svg composites, so `onPress` isn't present on
-    // them — `onStartShouldSetResponder` is the host-level prop Pressable
-    // wires up to grab the responder for every touch.
+    // them. `pointerEvents` must not be 'none' (that would let touches fall
+    // straight through to the app below), and `onStartShouldSetResponder` is
+    // the host-level prop Pressable wires up to grab the responder for every
+    // touch that starts on it.
     const overlay = screen.getByTestId('tour-overlay');
     const [swallow, svg] = overlay.children as unknown as [
       { type: unknown; props: Record<string, unknown> },
       { type: unknown; props: Record<string, unknown> },
     ];
     expect(swallow.props.style).toBe(StyleSheet.absoluteFill);
+    expect(swallow.props.pointerEvents).not.toBe('none');
     expect((swallow.props.onStartShouldSetResponder as () => boolean)?.()).toBe(true);
 
     expect(svg.props.pointerEvents).toBe('none');
