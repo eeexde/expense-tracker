@@ -74,14 +74,18 @@ export function TourOverlay() {
   if (spotlight) {
     const below = spotlight.y + spotlight.height + SPOTLIGHT_PAD + CARD_GAP;
     const above = spotlight.y - SPOTLIGHT_PAD - CARD_GAP - CARD_ESTIMATED_HEIGHT;
-    cardTop = below + CARD_ESTIMATED_HEIGHT + CARD_MARGIN <= height ? below : Math.max(CARD_MARGIN, above);
+    cardTop = below + CARD_ESTIMATED_HEIGHT + CARD_MARGIN <= height ? below : above;
   }
+  // Clamp to the top edge on every path — the centered fallback runs off
+  // screen on a viewport shorter than CARD_ESTIMATED_HEIGHT, same as the
+  // above-spotlight branch would without this.
+  cardTop = Math.max(CARD_MARGIN, cardTop);
 
   return (
     <View style={styles.fill} testID="tour-overlay" pointerEvents="box-none">
       {/* Swallows every touch aimed at the app underneath: the tour advances
           through its own buttons only, so nothing can be tapped out of order. */}
-      <Pressable style={styles.fill} onPress={() => {}} accessible={false} />
+      <Pressable style={styles.fill} accessible={false} pointerEvents="none" />
 
       <Svg style={styles.fill} width={width} height={height} pointerEvents="none">
         <Path
